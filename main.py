@@ -12,12 +12,20 @@ from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
     QLabel, QLineEdit, QPushButton, QProgressBar, QFileDialog, 
     QGroupBox, QFormLayout, QComboBox, QSpinBox, QTextEdit, QDialog,
-    QMessageBox
+    QMessageBox, QCheckBox, QFrame, QAction, QMenu, QMenuBar, QStatusBar,
+    QSizePolicy, QScrollArea, QToolBar, QToolButton, QSplitter
 )
-from PyQt5.QtCore import Qt, QThread, pyqtSignal, QUrl
-from PyQt5.QtGui import QFont, QPalette, QColor, QDragEnterEvent, QDropEvent
+from PyQt5.QtCore import (
+    Qt, QThread, pyqtSignal, QUrl, QSize, QTimer, QPoint, QRect,
+    QCoreApplication, QMetaObject, QObject, QEvent
+)
+from PyQt5.QtGui import (
+    QFont, QPalette, QColor, QDragEnterEvent, QDropEvent, QIcon,
+    QPixmap, QCursor, QFontMetrics, QPainter, QBrush, QPen
+)
 import subprocess
 import glob
+import re
 
 # Настройка логирования
 logger = logging.getLogger('video_downloader')
@@ -49,19 +57,153 @@ if getattr(sys, 'frozen', False):
         print(f"Ошибка при настройке файлового логирования: {e}")
 else:
     # Если приложение запущено как скрипт, логируем в файл в текущей директории
-    try:
-        file_handler = logging.FileHandler('video_downloader.log')
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-        logger.info("Логирование в файл настроено в текущей директории")
-    except Exception as e:
-        print(f"Ошибка при настройке файлового логирования: {e}")
+    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app_debug.log')
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    logger.info(f"Логирование в файл настроено: {log_file}")
 
-# Цвета в стиле Apple
-APPLE_BLUE = "#0066CC"
-APPLE_WHITE = "#FFFFFF"
-APPLE_BLACK = "#333333"
-APPLE_GRAY = "#F5F5F7"
+# Цвета для светлой темы
+LIGHT_THEME = {
+    'BLUE': "#007AFF",
+    'ACCENT': "#0A84FF",
+    'BACKGROUND': "#FFFFFF",
+    'SECONDARY_BACKGROUND': "#F2F2F7",
+    'TEXT': "#1C1C1E",
+    'SECONDARY_TEXT': "#8E8E93",
+    'BORDER': "#E5E5EA",
+    'SUCCESS': "#34C759",
+    'WARNING': "#FF9500",
+    'ERROR': "#FF3B30"
+}
+
+# Цвета для темной темы
+DARK_THEME = {
+    'BLUE': "#0A84FF",
+    'ACCENT': "#0A84FF",
+    'BACKGROUND': "#2C2C2E",
+    'SECONDARY_BACKGROUND': "#3A3A3C",
+    'TEXT': "#FFFFFF",
+    'SECONDARY_TEXT': "#EBEBF5",
+    'BORDER': "#48484A",
+    'SUCCESS': "#30D158",
+    'WARNING': "#FF9F0A",
+    'ERROR': "#FF453A"
+}
+
+# Для обратной совместимости
+APPLE_BLUE = LIGHT_THEME['BLUE']
+APPLE_WHITE = LIGHT_THEME['BACKGROUND']
+APPLE_BLACK = LIGHT_THEME['TEXT']
+APPLE_GRAY = LIGHT_THEME['SECONDARY_BACKGROUND']
+
+# Текущая тема (по умолчанию светлая)
+CURRENT_THEME = LIGHT_THEME.copy()
+
+# Функция для переключения темы
+def toggle_theme(app, is_dark=False):
+    global CURRENT_THEME
+    if is_dark:
+        CURRENT_THEME = DARK_THEME.copy()
+    else:
+        CURRENT_THEME = LIGHT_THEME.copy()
+    
+    # Обновляем стили для всего приложения
+    update_app_style(app)
+    
+    return CURRENT_THEME
+
+# Функция для обновления стилей приложения
+def update_app_style(app):
+    # Создаем базовый стиль для всего приложения
+    app_style = f"""
+        QWidget {{
+            background-color: {CURRENT_THEME['BACKGROUND']};
+            color: {CURRENT_THEME['TEXT']};
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+        }}
+        QPushButton {{
+            background-color: {CURRENT_THEME['ACCENT']};
+            color: {CURRENT_THEME['BACKGROUND']};
+            border-radius: 6px;
+            padding: 8px 16px;
+            font-weight: bold;
+            border: none;
+        }}
+        QPushButton:hover {{
+            background-color: {CURRENT_THEME['BLUE']};
+            opacity: 0.9;
+        }}
+        QPushButton:pressed {{
+            background-color: {CURRENT_THEME['BLUE']};
+            opacity: 0.7;
+        }}
+        QLineEdit, QComboBox, QSpinBox {{
+            border: 1px solid {CURRENT_THEME['BORDER']};
+            border-radius: 6px;
+            padding: 8px;
+            background-color: {CURRENT_THEME['SECONDARY_BACKGROUND']};
+            color: {CURRENT_THEME['TEXT']};
+        }}
+        QGroupBox {{
+            border: 1px solid {CURRENT_THEME['BORDER']};
+            border-radius: 6px;
+            margin-top: 1em;
+            padding-top: 10px;
+            font-weight: bold;
+        }}
+        QGroupBox::title {{
+            subcontrol-origin: margin;
+            left: 10px;
+            padding: 0 5px;
+            color: {CURRENT_THEME['TEXT']};
+        }}
+        QProgressBar {{
+            border: none;
+            border-radius: 5px;
+            background-color: {CURRENT_THEME['SECONDARY_BACKGROUND']};
+            text-align: center;
+            color: {CURRENT_THEME['TEXT']};
+        }}
+        QProgressBar::chunk {{
+            background-color: {CURRENT_THEME['ACCENT']};
+            border-radius: 5px;
+        }}
+        QLabel {{
+            color: {CURRENT_THEME['TEXT']};
+        }}
+        QTextEdit {{
+            background-color: {CURRENT_THEME['SECONDARY_BACKGROUND']};
+            color: {CURRENT_THEME['TEXT']};
+            border: 1px solid {CURRENT_THEME['BORDER']};
+            border-radius: 6px;
+        }}
+        QComboBox QAbstractItemView {{
+            background-color: {CURRENT_THEME['SECONDARY_BACKGROUND']};
+            color: {CURRENT_THEME['TEXT']};
+            selection-background-color: {CURRENT_THEME['ACCENT']};
+            selection-color: {CURRENT_THEME['BACKGROUND']};
+        }}
+        QMenuBar {{
+            background-color: {CURRENT_THEME['BACKGROUND']};
+            color: {CURRENT_THEME['TEXT']};
+        }}
+        QMenuBar::item:selected {{
+            background-color: {CURRENT_THEME['ACCENT']};
+            color: {CURRENT_THEME['BACKGROUND']};
+        }}
+        QMenu {{
+            background-color: {CURRENT_THEME['BACKGROUND']};
+            color: {CURRENT_THEME['TEXT']};
+        }}
+        QMenu::item:selected {{
+            background-color: {CURRENT_THEME['ACCENT']};
+            color: {CURRENT_THEME['BACKGROUND']};
+        }}
+    """
+    
+    app.setStyleSheet(app_style)
+
 
 class FormatFetcher(QThread):
     formats_ready = pyqtSignal(list)
@@ -272,9 +414,9 @@ class VideoDownloader(QThread):
             if sys.platform == 'darwin':
                 # На macOS в .app пакете путь будет отличаться
                 base_dir = os.path.abspath(os.path.join(os.path.dirname(sys.executable), '..', 'Frameworks'))
-        else:
-            # Если приложение запущено как скрипт
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+            else:
+                # На других платформах
+                base_dir = os.path.dirname(sys.executable)
         
         # Создаем временную директорию в базовой директории приложения
         self.temp_dir = os.path.join(base_dir, "temp_downloads")
@@ -600,54 +742,8 @@ class SelectionDialog(QDialog):
             reverse=True
         )
         
-        # Применяем стиль Apple
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {APPLE_WHITE};
-                color: {APPLE_BLACK};
-            }}
-            QPushButton {{
-                background-color: {APPLE_BLUE};
-                color: {APPLE_WHITE};
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
-                border: none;
-            }}
-            QPushButton:hover {{
-                background-color: #0051D5;
-            }}
-            QPushButton:pressed {{
-                background-color: #003CA6;
-            }}
-            QLineEdit, QComboBox, QSpinBox {{
-                border: 1px solid {APPLE_GRAY};
-                border-radius: 6px;
-                padding: 8px;
-                background-color: {APPLE_WHITE};
-            }}
-            QGroupBox {{
-                border: 1px solid {APPLE_GRAY};
-                border-radius: 6px;
-                margin-top: 1em;
-                padding-top: 10px;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }}
-            QProgressBar {{
-                border: none;
-                border-radius: 5px;
-                background-color: {APPLE_GRAY};
-                text-align: center;
-            }}
-            QProgressBar::chunk {{
-                background-color: {APPLE_BLUE};
-                border-radius: 5px;
-            }}
-        """)
+        # Обновляем стиль диалога в соответствии с текущей темой
+        self.update_dialog_style()
         
         # Основной контейнер с отступами
         main_layout = QVBoxLayout()
@@ -661,7 +757,7 @@ class SelectionDialog(QDialog):
             font-size: 20px; 
             font-weight: bold; 
             margin-bottom: 10px; 
-            color: {APPLE_BLACK};
+            color: {CURRENT_THEME['TEXT']};
         """)
         main_layout.addWidget(title_label)
         
@@ -764,7 +860,62 @@ class SelectionDialog(QDialog):
         
         # Заполняем комбобоксы
         self.update_format_lists()
-        
+    
+    def update_dialog_style(self):
+        """Обновляет стиль диалога в соответствии с текущей темой"""
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {CURRENT_THEME['BACKGROUND']};
+                color: {CURRENT_THEME['TEXT']};
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            }}
+            QPushButton {{
+                background-color: {CURRENT_THEME['ACCENT']};
+                color: {CURRENT_THEME['BACKGROUND']};
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: bold;
+                border: none;
+            }}
+            QPushButton:hover {{
+                background-color: {CURRENT_THEME['BLUE']};
+                opacity: 0.9;
+            }}
+            QPushButton:pressed {{
+                background-color: {CURRENT_THEME['BLUE']};
+                opacity: 0.7;
+            }}
+            QLineEdit, QComboBox, QSpinBox {{
+                border: 1px solid {CURRENT_THEME['BORDER']};
+                border-radius: 6px;
+                padding: 8px;
+                background-color: {CURRENT_THEME['SECONDARY_BACKGROUND']};
+                color: {CURRENT_THEME['TEXT']};
+            }}
+            QGroupBox {{
+                border: 1px solid {CURRENT_THEME['BORDER']};
+                border-radius: 6px;
+                margin-top: 1em;
+                padding-top: 10px;
+                font-weight: bold;
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px;
+                color: {CURRENT_THEME['TEXT']};
+            }}
+            QLabel {{
+                color: {CURRENT_THEME['TEXT']};
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {CURRENT_THEME['SECONDARY_BACKGROUND']};
+                color: {CURRENT_THEME['TEXT']};
+                selection-background-color: {CURRENT_THEME['ACCENT']};
+                selection-color: {CURRENT_THEME['BACKGROUND']};
+            }}
+        """)
+    
     def update_format_lists(self):
         """Обновляет списки форматов видео и аудио"""
         self.video_combo.clear()
@@ -815,22 +966,78 @@ class SelectionDialog(QDialog):
         
     def browse_directory(self):
         """Открывает диалог выбора директории для сохранения"""
-        directory = QFileDialog.getExistingDirectory(
-            self, 
-            "Выберите директорию для сохранения", 
-            self.dir_input.text(),
-            QFileDialog.ShowDirsOnly
-        )
+        # Создаем диалог в стиле macOS
+        file_dialog = QFileDialog(self, "Выберите директорию для сохранения")
+        file_dialog.setFileMode(QFileDialog.Directory)
+        file_dialog.setOption(QFileDialog.ShowDirsOnly, True)
+        file_dialog.setDirectory(self.dir_input.text())
         
-        if directory:
-            self.dir_input.setText(directory)
-            logger.info(f"Выбрана директория для сохранения: {directory}")
+        # Применяем стиль текущей темы
+        file_dialog.setStyleSheet(f"""
+            QFileDialog {{
+                background-color: {CURRENT_THEME['BACKGROUND']};
+                color: {CURRENT_THEME['TEXT']};
+            }}
+            QListView, QTreeView {{
+                background-color: {CURRENT_THEME['SECONDARY_BACKGROUND']};
+                color: {CURRENT_THEME['TEXT']};
+                border: 1px solid {CURRENT_THEME['BORDER']};
+                border-radius: 6px;
+            }}
+            QPushButton {{
+                background-color: {CURRENT_THEME['ACCENT']};
+                color: {CURRENT_THEME['BACKGROUND']};
+                border-radius: 6px;
+                padding: 8px 16px;
+                font-weight: bold;
+                border: none;
+            }}
+            QLineEdit {{
+                border: 1px solid {CURRENT_THEME['BORDER']};
+                border-radius: 6px;
+                padding: 8px;
+                background-color: {CURRENT_THEME['SECONDARY_BACKGROUND']};
+                color: {CURRENT_THEME['TEXT']};
+            }}
+        """)
         
+        if file_dialog.exec_():
+            selected_dirs = file_dialog.selectedFiles()
+            if selected_dirs:
+                directory = selected_dirs[0]
+                self.dir_input.setText(directory)
+                logger.info(f"Выбрана директория для сохранения: {directory}")
+    
     def get_selection(self):
         """Возвращает выбранный формат, директорию и количество потоков"""
-        output_directory = self.dir_input.text()
+        output_directory = self.dir_input.text().strip()
         threads = self.threads_spin.value()
         custom_filename = self.filename_input.text().strip() or None
+        
+        # Проверяем существование директории
+        if not os.path.exists(output_directory):
+            try:
+                # Пытаемся создать директорию, если она не существует
+                os.makedirs(output_directory, exist_ok=True)
+                logger.info(f"Создана директория для сохранения: {output_directory}")
+            except Exception as e:
+                logger.error(f"Ошибка при создании директории {output_directory}: {e}")
+                QMessageBox.warning(
+                    self,
+                    "Ошибка директории",
+                    f"Не удалось создать директорию {output_directory}.\nПожалуйста, выберите другую директорию."
+                )
+                return None, None, None, None
+        
+        # Проверяем права на запись в директорию
+        if not os.access(output_directory, os.W_OK):
+            logger.error(f"Нет прав на запись в директорию {output_directory}")
+            QMessageBox.warning(
+                self,
+                "Ошибка прав доступа",
+                f"Нет прав на запись в директорию {output_directory}.\nПожалуйста, выберите другую директорию."
+            )
+            return None, None, None, None
         
         # Проверяем наличие видео и аудио форматов
         if self.video_combo.count() > 0:
@@ -847,8 +1054,28 @@ class SelectionDialog(QDialog):
                 logger.info(f"Выбран только видео формат: {video_format_id}")
         else:
             logger.warning("Нет доступных форматов видео")
+            QMessageBox.warning(
+                self,
+                "Ошибка выбора формата",
+                "Не найдены доступные форматы видео."
+            )
             return None, None, None, None
+        
+        # Проверяем валидность имени файла, если оно указано
+        if custom_filename:
+            # Удаляем недопустимые символы из имени файла
+            invalid_chars = r'[<>:"/\\|?*]'
+            sanitized_filename = re.sub(invalid_chars, '', custom_filename)
             
+            if sanitized_filename != custom_filename:
+                logger.warning(f"Имя файла содержит недопустимые символы: {custom_filename}")
+                QMessageBox.information(
+                    self,
+                    "Имя файла изменено",
+                    f"Имя файла содержало недопустимые символы и было изменено на:\n{sanitized_filename}"
+                )
+                custom_filename = sanitized_filename
+        
         logger.info(f"Итоговый выбор: формат {format_id}, директория {output_directory}, потоки {threads}")
         return format_id, output_directory, threads, custom_filename
 
@@ -857,143 +1084,202 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         
-        self.setWindowTitle("Скачивание видео")
-        self.setMinimumSize(800, 600)
+        # Настройка основного окна
+        self.setWindowTitle("Video Downloader")
+        self.setMinimumSize(600, 400)
+        self.setAcceptDrops(True)  # Включаем поддержку перетаскивания файлов
         
-        # Применяем стиль Apple
-        self.setStyleSheet(f"""
-            QWidget {{
-                background-color: {APPLE_WHITE};
-                color: {APPLE_BLACK};
-            }}
-            QPushButton {{
-                background-color: {APPLE_BLUE};
-                color: {APPLE_WHITE};
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
-                border: none;
-            }}
-            QPushButton:hover {{
-                background-color: #0051D5;
-            }}
-            QPushButton:pressed {{
-                background-color: #003CA6;
-            }}
-            QLineEdit, QComboBox, QSpinBox {{
-                border: 1px solid {APPLE_GRAY};
-                border-radius: 6px;
-                padding: 8px;
-                background-color: {APPLE_WHITE};
-            }}
-            QGroupBox {{
-                border: 1px solid {APPLE_GRAY};
-                border-radius: 6px;
-                margin-top: 1em;
-                padding-top: 10px;
-            }}
-            QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-            }}
-            QProgressBar {{
-                border: none;
-                border-radius: 5px;
-                background-color: {APPLE_GRAY};
-                text-align: center;
-            }}
-            QProgressBar::chunk {{
-                background-color: {APPLE_BLUE};
-                border-radius: 5px;
-            }}
-        """)
+        # Инициализация переменных
+        self.downloader = None
+        self.format_fetcher = None
         
-        # Включаем поддержку перетаскивания файлов
-        self.setAcceptDrops(True)
-        
-        # Создаем центральный виджет
+        # Создаем центральный виджет и основной layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        
-        # Основной контейнер с отступами
-        main_layout = QVBoxLayout()
+        main_layout = QVBoxLayout(central_widget)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(15)
-        central_widget.setLayout(main_layout)
         
-        # Заголовок
-        title_label = QLabel("Скачивание видео")
+        # Создаем верхнюю панель с логотипом и заголовком
+        header_layout = QHBoxLayout()
+        
+        # Заголовок приложения
+        title_label = QLabel("Video Downloader")
         title_label.setStyleSheet(f"""
-            font-size: 24px; 
-            font-weight: bold; 
-            margin-bottom: 10px; 
-            color: {APPLE_BLACK};
+            font-size: 24px;
+            font-weight: bold;
+            color: {CURRENT_THEME['TEXT']};
         """)
-        main_layout.addWidget(title_label)
+        header_layout.addWidget(title_label)
         
-        # Группа ввода URL
-        url_group = QGroupBox("URL видео или файл плейлиста")
+        # Добавляем переключатель темы
+        self.theme_toggle = QCheckBox("Темная тема")
+        self.theme_toggle.setChecked(False)
+        self.theme_toggle.stateChanged.connect(self.toggle_theme)
+        header_layout.addWidget(self.theme_toggle, alignment=Qt.AlignRight)
+        
+        main_layout.addLayout(header_layout)
+        
+        # Добавляем разделитель
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        separator.setStyleSheet(f"background-color: {CURRENT_THEME['BORDER']};")
+        main_layout.addWidget(separator)
+        
+        # Группа для ввода URL или выбора файла
+        input_group = QGroupBox("Источник видео")
+        input_layout = QVBoxLayout(input_group)
+        input_layout.setContentsMargins(15, 20, 15, 15)
+        input_layout.setSpacing(10)
+        
+        # Поле для ввода URL или пути к файлу
         url_layout = QHBoxLayout()
-        
         self.url_input = QLineEdit()
-        self.url_input.setPlaceholderText("Введите URL видео или выберите файл плейлиста")
-        self.url_input.setMinimumHeight(40)
-        self.url_input.setStyleSheet("font-size: 14px;")
-        url_layout.addWidget(self.url_input, 1)
+        self.url_input.setPlaceholderText("Введите URL видео или путь к файлу плейлиста")
+        url_layout.addWidget(self.url_input)
         
-        browse_btn = QPushButton("Обзор")
-        browse_btn.setMinimumHeight(40)
-        browse_btn.setMinimumWidth(100)
+        # Кнопка выбора файла
+        browse_btn = QPushButton("Выбрать файл")
         browse_btn.clicked.connect(self.browse_file)
         url_layout.addWidget(browse_btn)
         
-        url_group.setLayout(url_layout)
-        main_layout.addWidget(url_group)
+        input_layout.addLayout(url_layout)
         
-        # Кнопка скачивания
-        self.download_btn = QPushButton("Выбрать формат и скачать")
-        self.download_btn.setMinimumHeight(50)
-        self.download_btn.setStyleSheet("font-size: 16px; font-weight: bold;")
-        self.download_btn.clicked.connect(self.start_download)
-        main_layout.addWidget(self.download_btn)
+        # Информационная метка
+        info_label = QLabel("Поддерживаются файлы .m3u и .m3u8. Вы также можете перетащить файл в окно приложения.")
+        info_label.setStyleSheet(f"color: {CURRENT_THEME['SECONDARY_TEXT']}; font-size: 12px;")
+        input_layout.addWidget(info_label)
+        
+        main_layout.addWidget(input_group)
+        
+        # Группа для отображения прогресса загрузки
+        progress_group = QGroupBox("Прогресс загрузки")
+        progress_layout = QVBoxLayout(progress_group)
+        progress_layout.setContentsMargins(15, 20, 15, 15)
+        progress_layout.setSpacing(10)
         
         # Прогресс-бар
         self.progress_bar = QProgressBar()
-        self.progress_bar.setMinimumHeight(30)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
         self.progress_bar.setTextVisible(True)
-        self.progress_bar.setAlignment(Qt.AlignCenter)
-        self.progress_bar.setStyleSheet("font-size: 14px;")
-        main_layout.addWidget(self.progress_bar)
+        self.progress_bar.setFormat("%p%")
+        progress_layout.addWidget(self.progress_bar)
         
-        # Статус
+        # Метка статуса
         self.status_label = QLabel("Готов к загрузке")
-        self.status_label.setStyleSheet("font-size: 14px;")
-        main_layout.addWidget(self.status_label)
+        self.status_label.setAlignment(Qt.AlignCenter)
+        progress_layout.addWidget(self.status_label)
         
-        # Лог
-        log_group = QGroupBox("Журнал событий")
-        log_layout = QVBoxLayout()
+        main_layout.addWidget(progress_group)
         
-        self.log_widget = QTextEditLogger()
-        self.log_widget.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-        self.log_widget.widget.setReadOnly(True)
-        self.log_widget.widget.setMinimumHeight(200)
+        # Кнопка загрузки
+        self.download_btn = QPushButton("Начать загрузку")
+        self.download_btn.setMinimumHeight(40)
+        self.download_btn.clicked.connect(self.start_download)
+        main_layout.addWidget(self.download_btn)
         
-        # Добавляем обработчик логов
-        logger.addHandler(self.log_widget)
-        logger.setLevel(logging.INFO)  # Устанавливаем уровень логирования
+        # Создаем меню
+        self.create_menu()
         
-        log_layout.addWidget(self.log_widget.widget)
-        log_group.setLayout(log_layout)
-        main_layout.addWidget(log_group)
+        # Устанавливаем иконку приложения
+        try:
+            if getattr(sys, 'frozen', False):
+                # Если приложение запущено как скомпилированный бинарный файл
+                if sys.platform == 'darwin':
+                    # На macOS в .app пакете
+                    icon_path = os.path.abspath(os.path.join(os.path.dirname(sys.executable), '..', 'Resources', 'icon.png'))
+                else:
+                    icon_path = os.path.join(os.path.dirname(sys.executable), 'icon.png')
+            else:
+                # Если приложение запущено как скрипт
+                icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'icon.png')
+            
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+                logger.info(f"Установлена иконка приложения: {icon_path}")
+            else:
+                logger.warning(f"Иконка приложения не найдена: {icon_path}")
+        except Exception as e:
+            logger.error(f"Ошибка при установке иконки приложения: {e}")
+    
+    def create_menu(self):
+        """Создает меню приложения"""
+        menubar = self.menuBar()
         
-        # Инициализация переменных
-        self.format_fetcher = None
-        self.downloader = None
+        # Меню "Файл"
+        file_menu = menubar.addMenu('Файл')
         
-        logger.info("Приложение запущено")
+        # Пункт "Открыть файл"
+        open_action = QAction('Открыть файл', self)
+        open_action.triggered.connect(self.browse_file)
+        file_menu.addAction(open_action)
         
+        # Пункт "Выход"
+        exit_action = QAction('Выход', self)
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        
+        # Меню "Настройки"
+        settings_menu = menubar.addMenu('Настройки')
+        
+        # Пункт "Темная тема"
+        dark_theme_action = QAction('Темная тема', self, checkable=True)
+        dark_theme_action.setChecked(False)
+        dark_theme_action.triggered.connect(lambda checked: self.toggle_theme(checked))
+        settings_menu.addAction(dark_theme_action)
+        
+        # Меню "Справка"
+        help_menu = menubar.addMenu('Справка')
+        
+        # Пункт "О программе"
+        about_action = QAction('О программе', self)
+        about_action.triggered.connect(self.show_about)
+        help_menu.addAction(about_action)
+    
+    def toggle_theme(self, checked):
+        """Переключает между светлой и темной темой"""
+        # Обновляем состояние чекбокса, если функция была вызвана из меню
+        if isinstance(checked, bool):
+            self.theme_toggle.setChecked(checked)
+        else:
+            checked = self.theme_toggle.isChecked()
+        
+        # Получаем экземпляр приложения
+        app = QApplication.instance()
+        
+        # Переключаем тему
+        toggle_theme(app, checked)
+        
+        # Обновляем стили для разделителя и информационной метки
+        for child in self.findChildren(QFrame):
+            if child.frameShape() == QFrame.HLine:
+                child.setStyleSheet(f"background-color: {CURRENT_THEME['BORDER']};")
+        
+        for child in self.findChildren(QLabel):
+            if child.text().startswith("Поддерживаются файлы"):
+                child.setStyleSheet(f"color: {CURRENT_THEME['SECONDARY_TEXT']}; font-size: 12px;")
+        
+        # Обновляем заголовок
+        for child in self.findChildren(QLabel):
+            if child.text() == "Video Downloader":
+                child.setStyleSheet(f"""
+                    font-size: 24px;
+                    font-weight: bold;
+                    color: {CURRENT_THEME['TEXT']};
+                """)
+    
+    def show_about(self):
+        """Показывает информацию о программе"""
+        QMessageBox.about(self, "О программе", 
+            "Video Downloader\n\n"
+            "Версия: 1.0\n\n"
+            "Приложение для скачивания видео из различных источников.\n"
+            "Поддерживает файлы .m3u и .m3u8.\n\n"
+            " 2023 All rights reserved."
+        )
+    
     def browse_file(self):
         """Открывает диалог выбора файла плейлиста"""
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1251,32 +1537,41 @@ def main():
         # Устанавливаем шрифт для всего приложения
         # Используем стандартные шрифты, которые точно есть в системе
         try:
-            font = QFont("Helvetica", 10)
+            font = QFont("-apple-system", 10)  # Используем системный шрифт Apple
             app.setFont(font)
-            logger.info("Установлен шрифт: Helvetica")
+            logger.info("Установлен шрифт: -apple-system")
         except Exception as e:
-            logger.warning(f"Не удалось установить шрифт Helvetica: {e}")
-            # Используем системный шрифт по умолчанию
-            logger.info("Используется системный шрифт по умолчанию")
+            logger.warning(f"Не удалось установить шрифт -apple-system: {e}")
+            try:
+                font = QFont("SF Pro", 10)  # Пробуем использовать SF Pro
+                app.setFont(font)
+                logger.info("Установлен шрифт: SF Pro")
+            except Exception as e:
+                logger.warning(f"Не удалось установить шрифт SF Pro: {e}")
+                # Используем системный шрифт по умолчанию
+                logger.info("Используется системный шрифт по умолчанию")
         
-        # Устанавливаем палитру цветов
-        try:
-            palette = QPalette()
-            palette.setColor(QPalette.Window, QColor(APPLE_WHITE))
-            palette.setColor(QPalette.WindowText, QColor(APPLE_BLACK))
-            palette.setColor(QPalette.Base, QColor(APPLE_WHITE))
-            palette.setColor(QPalette.AlternateBase, QColor(APPLE_GRAY))
-            palette.setColor(QPalette.Text, QColor(APPLE_BLACK))
-            palette.setColor(QPalette.Button, QColor(APPLE_BLUE))
-            palette.setColor(QPalette.ButtonText, QColor(APPLE_WHITE))
-            palette.setColor(QPalette.Highlight, QColor(APPLE_BLUE))
-            palette.setColor(QPalette.HighlightedText, QColor(APPLE_WHITE))
-            app.setPalette(palette)
-            logger.info("Установлена цветовая палитра в стиле Apple")
-        except Exception as e:
-            logger.warning(f"Не удалось установить цветовую палитру: {e}")
+        # Определяем, использовать ли темную тему
+        # Проверяем системные настройки для macOS
+        use_dark_theme = False
+        if sys.platform == 'darwin':
+            try:
+                # Проверяем системные настройки macOS для определения темной темы
+                result = subprocess.run(['defaults', 'read', '-g', 'AppleInterfaceStyle'], 
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if result.returncode == 0 and 'Dark' in result.stdout:
+                    use_dark_theme = True
+                    logger.info("Обнаружена системная темная тема macOS")
+            except Exception as e:
+                logger.warning(f"Не удалось определить системную тему: {e}")
+        
+        # Применяем тему
+        toggle_theme(app, use_dark_theme)
+        logger.info(f"Установлена {'темная' if use_dark_theme else 'светлая'} тема")
         
         window = MainWindow()
+        # Устанавливаем состояние переключателя темы
+        window.theme_toggle.setChecked(use_dark_theme)
         window.show()
         
         sys.exit(app.exec_())
