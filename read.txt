@@ -1,0 +1,49 @@
+Мне нужен скрипт на Питоне с графическим интерфейсом который будет скачивать видео из плейлиста на который я буду давать ссылку
+
+В этом плейлисте есть видео дорожка и аудиодорожки, нужно отдавать выбор качества видео и выбрать нужную аудиодорожку.
+
+Скачивание должно быть многопоточным. Количество потоков задается в настройках.
+
+Скачиваться должен видео поток и аудио поток а потом они должны склеиваться.
+
+
+Должен быть прогрессбар с понятной стадии процесса по типу скачиваем видео, скачиваем аудио, проверка целостности, склеивания и т.п.
+
+Нужно проверять на целостность файлы чтобы не получилось что аудио либо видео дорожка не полная особенно  когда после скачивания отстает звук, либо опережает звук.
+
+Все настройки должны быть в отдельном файле .env
+
+удели время минималистичному дизайну в стиле apple
+
+Нужно чтобы можно было выбрать либо ссылку на плейлист либо локальный файл
+
+Нужно чтобы я мог выбрать итоговую папку куда файл будет сохраняться
+
+
+
+Вот пример плейлиста
+
+#EXTM3U
+#EXT-X-VERSION:4
+#EXT-X-INDEPENDENT-SEGMENTS
+
+
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio1080",NAME="01. Оригинал (RUS)",DEFAULT=YES,URI="https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-12.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/0/d8/wMB3dl48CclyTYQY0.mp4/index-a1.m3u8?loc=nl"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio1080",NAME="02. Оригинал (RUS) AC3",DEFAULT=NO,URI="https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-12.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/0/d8/wMB3dl48CclyTYQY0.mp4/index-a2.m3u8?loc=nl"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio720",NAME="01. Оригинал (RUS)",DEFAULT=YES,URI="https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-13.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/a/b1/VETWWIvb2ypIF4erF.mp4/index-a1.m3u8?loc=nl"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio720",NAME="02. Оригинал (RUS) AC3",DEFAULT=NO,URI="https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-13.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/a/b1/VETWWIvb2ypIF4erF.mp4/index-a2.m3u8?loc=nl"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio480",NAME="01. Оригинал (RUS)",DEFAULT=YES,URI="https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-15.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/c/7c/r83phY5bV1TqbVYBD.mp4/index-a1.m3u8?loc=nl"
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio480",NAME="02. Оригинал (RUS) AC3",DEFAULT=NO,URI="https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-15.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/a/b1/VETWWIvb2ypIF4erF.mp4/index-a2.m3u8?loc=nl"
+
+#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=8275981,VIDEO-RANGE=SDR,RESOLUTION=1440x1080,CODECS="avc1.640028,mp4a.40.2",FRAME-RATE=25,HDCP-LEVEL=NONE,AUDIO="audio1080"
+https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-12.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/0/d8/wMB3dl48CclyTYQY0.mp4/index-v1.m3u8?loc=nl
+#EXT-X-I-FRAME-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=1034497,VIDEO-RANGE=SDR,RESOLUTION=1440x1080,CODECS="avc1.640028,mp4a.40.2",HDCP-LEVEL=NONE,URI="https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-12.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/0/d8/wMB3dl48CclyTYQY0.mp4/iframes-v1.m3u8?loc=nl"
+
+#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=5216197,VIDEO-RANGE=SDR,RESOLUTION=1280x960,CODECS="avc1.640028,mp4a.40.2",FRAME-RATE=25,HDCP-LEVEL=NONE,AUDIO="audio720"
+https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-13.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/a/b1/VETWWIvb2ypIF4erF.mp4/index-v1.m3u8?loc=nl
+#EXT-X-I-FRAME-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=652024,VIDEO-RANGE=SDR,RESOLUTION=1280x960,CODECS="avc1.640028,mp4a.40.2",HDCP-LEVEL=NONE,URI="https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-13.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/a/b1/VETWWIvb2ypIF4erF.mp4/iframes-v1.m3u8?loc=nl"
+
+#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=2612187,VIDEO-RANGE=SDR,RESOLUTION=720x540,CODECS="avc1.640028,mp4a.40.2",FRAME-RATE=25,HDCP-LEVEL=NONE,AUDIO="audio480"
+https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-15.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/c/7c/r83phY5bV1TqbVYBD.mp4/index-v1.m3u8?loc=nl
+#EXT-X-I-FRAME-STREAM-INF:PROGRAM-ID=1,BANDWIDTH=326523,VIDEO-RANGE=SDR,RESOLUTION=720x540,CODECS="avc1.640028,mp4a.40.2",HDCP-LEVEL=NONE,URI="https://86feaca6-c052-436f-8b78-99cea0ec1571.ams-static-15.cdntogo.net/hls/aWQ9MTc0MTQyOzQxMTE3ODE1MjszNDEwMjA4MTsxNjUxOzE3MjczOTg5NzcmaD1LMDBEeENLWWctalY1ajlWRXdqb3pnJmU9MTcyNzQ4NTM3Nw/c/7c/r83phY5bV1TqbVYBD.mp4/iframes-v1.m3u8?loc=nl"
+
