@@ -3,20 +3,37 @@
 from __future__ import annotations
 
 import argparse
+import argparse
 import json
 import os
 import shutil
 import subprocess
 import sys
+from collections import deque
 from pathlib import Path
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 # Ensure common FFmpeg paths are in PATH
 current_path = os.environ.get('PATH', '')
 homebrew_paths = ['/opt/homebrew/bin', '/usr/local/bin']
-for path in homebrew_paths:
-    if path not in current_path and os.path.isdir(path):
-        os.environ['PATH'] = f"{path}:{current_path}"
+get_uid = getattr(os, 'getuid', lambda: 0)
+trusted_paths = []
+for candidate in homebrew_paths:
+    if candidate in current_path:
+        continue
+    if not os.path.isdir(candidate):
+        continue
+    try:
+        stat = os.stat(candidate)
+    except OSError:
+        continue
+    # Добавляем только директории, принадлежащие root или текущему пользователю
+    if stat.st_uid in {0, get_uid()}:
+        trusted_paths.append(candidate)
+
+if trusted_paths:
+    os.environ['PATH'] = os.pathsep.join(trusted_paths + [current_path])
 
 from utils import parse_m3u8_content, read_m3u8_source, sanitize_filename
 
@@ -49,7 +66,10 @@ def get_tracks_command(path: str) -> None:
 
 
 def _ensure_extension(filename: str) -> str:
-    return filename if filename.lower().endswith('.mp4') else f"{filename}.mp4"
+    path = Path(filename)
+    if path.suffix:
+        return filename
+    return f"{filename}.mp4"
 
 
 def download_with_ffmpeg(master: str, video_track: Optional[Dict[str, Any]], audio_track: Optional[Dict[str, Any]],
@@ -82,47 +102,95 @@ def download_with_ffmpeg(master: str, video_track: Optional[Dict[str, Any]], aud
     command = [
         ffmpeg_path,
         '-y',
+        '-nostdin',
         '-threads', str(max(1, min(threads, 16))),
     ]
 
-    if video_track:
-        command.extend(['-i', video_track.get('url', master)])
+    input_descriptors = []
+
+    if video_track and video_track.get('url'):
+        input_descriptors.append(('video', video_track['url']))
     else:
-        command.extend(['-i', master])
+        input_descriptors.append(('video', master))
 
     if audio_track and audio_track.get('url'):
-        command.extend(['-i', audio_track['url']])
-        command.extend(['-map', '0:v:0', '-map', '1:a:0', '-c:v', 'copy', '-c:a', 'copy'])
+        input_descriptors.append(('audio', audio_track['url']))
+
+    for _type, source in input_descriptors:
+        command.extend(['-i', source])
+
+    maps = []
+    if input_descriptors and input_descriptors[0][0] == 'video':
+        maps.append(('v', 0))
+
+    audio_input_index = None
+    for index, (descriptor_type, _) in enumerate(input_descriptors):
+        if descriptor_type == 'audio':
+            audio_input_index = index
+            break
+
+    if audio_input_index is not None:
+        command.extend(['-map', f'{audio_input_index}:a:0'])
+        if maps:
+            command.extend(['-map', f'{maps[0][1]}:v:0'])
+        command.extend(['-c:v', 'copy', '-c:a', 'copy'])
     else:
         command.extend(['-c', 'copy'])
 
+    command.extend(['-progress', 'pipe:2', '-nostats'])
     command.append(str(output_path))
 
     # Print progress updates
-    print_progress({"progress": 20, "status": "Запуск FFmpeg..."})
+    print_progress({"progress": 5, "status": "Подготовка FFmpeg"})
 
     try:
-        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen(
+            command,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
 
-        # Monitor progress
-        stderr_output = []
+        stderr_tail = deque(maxlen=50)
+        progress_value = 10
+        last_reported = 0
+
         while True:
             stderr_line = process.stderr.readline()
-            if stderr_line:
-                stderr_output.append(stderr_line.strip())
-                # Look for FFmpeg progress indicators
-                if "time=" in stderr_line:
-                    print_progress({"progress": 60, "status": "Обработка видео..."})
-                elif "video:" in stderr_line and "audio:" in stderr_line:
-                    print_progress({"progress": 90, "status": "Финализация..."})
-            elif process.poll() is not None:
-                break
+            if not stderr_line:
+                if process.poll() is not None:
+                    break
+                continue
 
-        # Wait for process to complete
+            line = stderr_line.strip()
+            if not line:
+                continue
+
+            stderr_tail.append(line)
+
+            if line.startswith('out_time_ms='):
+                try:
+                    out_time_ms = int(line.split('=', 1)[1])
+                    # Принимаем, что 1 минута ≈ 100% для отсутствия информации о длительности
+                    normalized = min(1.0, out_time_ms / (60 * 60 * 1000000))
+                    progress_value = max(progress_value, 20 + int(normalized * 70))
+                except ValueError:
+                    continue
+            elif line.startswith('progress='):
+                status = line.split('=', 1)[1]
+                if status == 'continue':
+                    if progress_value - last_reported >= 1:
+                        last_reported = progress_value
+                        print_progress({"progress": progress_value, "status": "Загрузка сегментов..."})
+                elif status == 'end':
+                    progress_value = 100
+                    print_progress({"progress": progress_value, "status": "Финализация"})
+
         process.wait()
 
         if process.returncode != 0:
-            stderr_full = '\n'.join(stderr_output)
+            stderr_full = '\n'.join(stderr_tail)
             return {
                 "success": False,
                 "error": stderr_full.strip() or "FFmpeg завершился с ошибкой",
@@ -145,18 +213,51 @@ def download_command(path: str, video_index: Optional[int], audio_index: Optiona
     content, base_url = read_m3u8_source(path)
     parsed = parse_m3u8_content(content, base_url)
 
+    videos = parsed.get('video', [])
+    audios = parsed.get('audio', [])
+
     video_track = None
-    if video_index is not None and 0 <= video_index < len(parsed.get('video', [])):
-        video_track = parsed['video'][video_index]
+    if video_index is not None:
+        if not (0 <= video_index < len(videos)):
+            raise ValueError('Некорректный индекс видео дорожки')
+        video_track = videos[video_index]
 
     audio_track = None
-    if audio_index is not None and 0 <= audio_index < len(parsed.get('audio', [])):
-        audio_track = parsed['audio'][audio_index]
+    if audio_index is not None:
+        if not (0 <= audio_index < len(audios)):
+            raise ValueError('Некорректный индекс аудио дорожки')
+        audio_track = audios[audio_index]
+
+    if audio_track:
+        reference_url = video_track.get('url') if video_track else path
+        master_netloc = urlparse(reference_url or '').netloc
+        audio_netloc = urlparse(audio_track.get('url', '')).netloc
+        if audio_netloc and master_netloc and audio_netloc != master_netloc:
+            raise ValueError('Домен аудио дорожки не совпадает с доменом видео')
 
     clean_name = sanitize_filename(filename)
 
     result = download_with_ffmpeg(path, video_track, audio_track, output_dir, clean_name, threads)
     print_json(result)
+
+
+def check_ffmpeg_command() -> None:
+    ffmpeg_path = shutil.which('ffmpeg')
+    if not ffmpeg_path:
+        print_json({"success": False, "error": "FFmpeg не найден в PATH"})
+        sys.exit(1)
+
+    try:
+        completed = subprocess.run([ffmpeg_path, '-version'], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        print_json({"success": False, "error": f"Не удалось запустить FFmpeg: {exc}"})
+        sys.exit(1)
+
+    print_json({
+        "success": True,
+        "path": ffmpeg_path,
+        "version": completed.stdout.splitlines()[0] if completed.stdout else 'unknown'
+    })
 
 
 def main(argv: Optional[list] = None) -> None:
@@ -174,6 +275,8 @@ def main(argv: Optional[list] = None) -> None:
     download_parser.add_argument('--filename', required=True, help='Имя итогового файла')
     download_parser.add_argument('--threads', type=int, default=4, help='Количество потоков для FFmpeg')
 
+    subparsers.add_parser('check-ffmpeg', help='Проверить доступность FFmpeg')
+
     args = parser.parse_args(argv)
 
     try:
@@ -181,6 +284,8 @@ def main(argv: Optional[list] = None) -> None:
             get_tracks_command(args.source)
         elif args.command == 'download':
             download_command(args.source, args.video, args.audio, args.output_dir, args.filename, args.threads)
+        elif args.command == 'check-ffmpeg':
+            check_ffmpeg_command()
         else:
             raise ValueError('Неизвестная команда')
     except Exception as exc:

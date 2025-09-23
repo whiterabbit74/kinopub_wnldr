@@ -19,9 +19,13 @@ let downloadBtn, progressContainer, progressFill, progressPercent, progressStatu
 let logContainer, logToggle, logContent, successSection, showFileBtn, downloadError;
 
 // Флаги для предотвращения race conditions
-let isRenderingTracks = false;
 let isDownloading = false;
 let currentProgressListener = null;
+let currentTrackRenderKey = null;
+let logEntryCount = 0;
+const MAX_LOG_ENTRIES = 100;
+let lastLoggedProgress = -1;
+let lastLoggedStatus = '';
 
 function initDomElements() {
     themeToggle = document.getElementById('themeToggle');
@@ -84,7 +88,7 @@ function showStep(stepName) {
     // Update back button visibility
     const backBtn = document.getElementById('backBtn');
     if (backBtn) {
-        backBtn.style.display = stepName === 'file-selection' ? 'none' : 'block';
+        backBtn.classList.toggle('hidden', stepName === 'file-selection');
     }
 
     state.currentStep = stepName;
@@ -117,11 +121,13 @@ function toggleTheme() {
 
 function showError(container, message) {
     container.textContent = message;
-    container.style.display = 'block';
+    container.classList.add('visible');
+    container.classList.remove('hidden');
 }
 
 function hideError(container) {
-    container.style.display = 'none';
+    container.classList.remove('visible');
+    container.classList.add('hidden');
 }
 
 function resetTracks() {
@@ -129,8 +135,13 @@ function resetTracks() {
     state.audioTracks = [];
     state.selectedVideo = null;
     state.selectedAudio = null;
-    videoTracksList.innerHTML = '';
-    audioTracksList.innerHTML = '';
+    if (videoTracksList) {
+        videoTracksList.innerHTML = '';
+    }
+    if (audioTracksList) {
+        audioTracksList.innerHTML = '';
+    }
+    currentTrackRenderKey = null;
 }
 
 function formatBandwidth(bandwidth) {
@@ -197,38 +208,7 @@ function createTrackElement(track, type) {
     return element;
 }
 
-function renderTracks() {
-    // Предотвращаем race condition
-    if (isRenderingTracks) {
-        return;
-    }
-    isRenderingTracks = true;
-
-    try {
-        if (!videoTracksList || !audioTracksList) {
-            console.error('DOM elements not ready for renderTracks');
-            return;
-        }
-
-        videoTracksList.innerHTML = '';
-        audioTracksList.innerHTML = '';
-
-        state.videoTracks.forEach((track) => {
-            const element = createTrackElement(track, 'video');
-            if (state.selectedVideo === track.id) {
-                element.classList.add('selected');
-            }
-            element.addEventListener('click', () => {
-                if (!isRenderingTracks) {
-                    state.selectedVideo = track.id;
-                    // Используем debounced перерисовку
-                    debounceRenderTracks();
-                    updateNextButton();
-                }
-            });
-            videoTracksList.appendChild(element);
-        });
-
+function createAudioPassthroughElement() {
     const emptyAudio = document.createElement('button');
     emptyAudio.type = 'button';
     emptyAudio.className = 'track-item';
@@ -253,48 +233,94 @@ function renderTracks() {
     info.appendChild(details);
     emptyAudio.appendChild(radio);
     emptyAudio.appendChild(info);
-    if (state.selectedAudio === null) {
-        emptyAudio.classList.add('selected');
-    }
-    emptyAudio.addEventListener('click', () => {
-        if (!isRenderingTracks) {
-            state.selectedAudio = null;
-            debounceRenderTracks();
-            updateNextButton();
-        }
-    });
-    audioTracksList.appendChild(emptyAudio);
+    return emptyAudio;
+}
 
-    state.audioTracks.forEach((track) => {
-        const element = createTrackElement(track, 'audio');
-        if (state.selectedAudio === track.id) {
-            element.classList.add('selected');
-        }
-        element.addEventListener('click', () => {
-            if (!isRenderingTracks) {
-                state.selectedAudio = track.id;
-                // Используем debounced перерисовку
-                debounceRenderTracks();
-                updateNextButton();
-            }
-        });
-        audioTracksList.appendChild(element);
-    });
-    } finally {
-        isRenderingTracks = false;
+function attachTrackListHandlers() {
+    if (videoTracksList && !videoTracksList.dataset.listenerAttached) {
+        videoTracksList.addEventListener('click', handleTrackSelection);
+        videoTracksList.dataset.listenerAttached = 'true';
+    }
+    if (audioTracksList && !audioTracksList.dataset.listenerAttached) {
+        audioTracksList.addEventListener('click', handleTrackSelection);
+        audioTracksList.dataset.listenerAttached = 'true';
     }
 }
 
-// Debounced версия renderTracks для предотвращения множественных вызовов
-let renderTracksTimeout = null;
-function debounceRenderTracks() {
-    if (renderTracksTimeout) {
-        clearTimeout(renderTracksTimeout);
+function handleTrackSelection(event) {
+    const button = event.target.closest('.track-item');
+    if (!button) {
+        return;
     }
-    renderTracksTimeout = setTimeout(() => {
-        renderTracks();
-        renderTracksTimeout = null;
-    }, 50);
+
+    const type = button.dataset.type;
+    const id = Number(button.dataset.id);
+
+    if (type === 'video') {
+        state.selectedVideo = Number.isNaN(id) ? null : id;
+    } else if (type === 'audio') {
+        state.selectedAudio = id >= 0 && !Number.isNaN(id) ? id : null;
+    }
+
+    updateTrackSelections();
+    updateNextButton();
+}
+
+function updateTrackSelections() {
+    if (!videoTracksList || !audioTracksList) {
+        return;
+    }
+
+    videoTracksList.querySelectorAll('.track-item').forEach((item) => {
+        const id = Number(item.dataset.id);
+        if (!Number.isNaN(id) && state.selectedVideo === id) {
+            item.classList.add('selected');
+        } else {
+            item.classList.remove('selected');
+        }
+    });
+
+    audioTracksList.querySelectorAll('.track-item').forEach((item) => {
+        const id = Number(item.dataset.id);
+        const isPassthrough = item.dataset.id === '-1';
+        const shouldSelect = (isPassthrough && state.selectedAudio === null) || (!Number.isNaN(id) && state.selectedAudio === id);
+        if (shouldSelect) {
+            item.classList.add('selected');
+        } else {
+            item.classList.remove('selected');
+        }
+    });
+}
+
+function renderTracks(force = false) {
+    if (!videoTracksList || !audioTracksList) {
+        console.error('DOM elements not ready for renderTracks');
+        return;
+    }
+
+    attachTrackListHandlers();
+
+    const renderKey = `${state.filePath || ''}:${state.videoTracks.length}:${state.audioTracks.length}`;
+    if (force || currentTrackRenderKey !== renderKey) {
+        const videoFragment = document.createDocumentFragment();
+        state.videoTracks.forEach((track) => {
+            const element = createTrackElement(track, 'video');
+            videoFragment.appendChild(element);
+        });
+        videoTracksList.replaceChildren(videoFragment);
+
+        const audioFragment = document.createDocumentFragment();
+        audioFragment.appendChild(createAudioPassthroughElement());
+        state.audioTracks.forEach((track) => {
+            const element = createTrackElement(track, 'audio');
+            audioFragment.appendChild(element);
+        });
+        audioTracksList.replaceChildren(audioFragment);
+
+        currentTrackRenderKey = renderKey;
+    }
+
+    updateTrackSelections();
 }
 
 
@@ -345,10 +371,12 @@ function resetProgress() {
     progressFill.style.width = '0%';
     progressPercent.textContent = '0%';
     progressStatus.textContent = 'Подготовка…';
-    progressContainer.style.display = 'none';
-    successSection.style.display = 'none';
+    progressContainer.classList.remove('visible');
+    successSection.classList.remove('visible');
     resetStages();
     clearLog();
+    lastLoggedProgress = -1;
+    lastLoggedStatus = '';
 }
 
 function resetStages() {
@@ -359,11 +387,14 @@ function resetStages() {
 }
 
 function setStageActive(stageType) {
-    resetStages();
-    const stage = progressStages.querySelector(`[data-stage="${stageType}"]`);
-    if (stage) {
-        stage.classList.add('active');
-    }
+    const stages = progressStages.querySelectorAll('.stage');
+    stages.forEach((stage) => {
+        if (stage.dataset.stage === stageType) {
+            stage.classList.add('active');
+        } else if (!stage.classList.contains('completed')) {
+            stage.classList.remove('active');
+        }
+    });
 }
 
 function setStageCompleted(stageType) {
@@ -375,7 +406,13 @@ function setStageCompleted(stageType) {
 }
 
 function clearLog() {
-    logContent.innerHTML = '';
+    if (!logContent) {
+        return;
+    }
+    while (logContent.firstChild) {
+        logContent.removeChild(logContent.firstChild);
+    }
+    logEntryCount = 0;
 }
 
 function addLogEntry(message, type = 'info') {
@@ -401,12 +438,12 @@ function addLogEntry(message, type = 'info') {
 
     entry.textContent = `${new Date().toLocaleTimeString()} - ${sanitizedMessage}`;
     logContent.appendChild(entry);
+    logEntryCount += 1;
     logContent.scrollTop = logContent.scrollHeight;
 
-    // Ограничиваем количество записей в логе (максимум 100)
-    const entries = logContent.querySelectorAll('.log-entry');
-    if (entries.length > 100) {
-        logContent.removeChild(entries[0]);
+    while (logEntryCount > MAX_LOG_ENTRIES && logContent.firstChild) {
+        logContent.removeChild(logContent.firstChild);
+        logEntryCount -= 1;
     }
 }
 
@@ -450,12 +487,17 @@ function handleFile(file) {
 async function analyzeFileAndProceed() {
     if (!state.filePath) return;
 
+    const targetFile = state.filePath;
     try {
         hideError(errorMessage);
         resetTracks();
 
         // Анализируем файл
-        const tracks = await window.electronAPI.getTracks(state.filePath);
+        const tracks = await window.electronAPI.getTracks(targetFile);
+        if (state.filePath !== targetFile) {
+            // Пользователь выбрал другой файл во время анализа
+            return;
+        }
         state.videoTracks = Array.isArray(tracks.video) ? tracks.video : [];
         state.audioTracks = Array.isArray(tracks.audio) ? tracks.audio : [];
 
@@ -483,13 +525,17 @@ async function analyzeFileAndProceed() {
 
 async function analyzeFile() {
     if (!state.filePath) return;
+    const targetFile = state.filePath;
     try {
         analyzeBtn.disabled = true;
         analyzeBtn.textContent = 'Анализ...';
         hideError(errorMessage);
         resetTracks();
 
-        const tracks = await window.electronAPI.getTracks(state.filePath);
+        const tracks = await window.electronAPI.getTracks(targetFile);
+        if (state.filePath !== targetFile) {
+            return;
+        }
         state.videoTracks = Array.isArray(tracks.video) ? tracks.video : [];
         state.audioTracks = Array.isArray(tracks.audio) ? tracks.audio : [];
 
@@ -549,147 +595,46 @@ async function selectFolder() {
 // Система детального отслеживания прогресса
 const ProgressTracker = {
     currentProgress: 0,
-    targetProgress: 0,
-    animationFrameId: null,
-    stages: {
-        preparation: { start: 0, end: 5, label: 'Подготовка к загрузке' },
-        video_init: { start: 5, end: 15, label: 'Инициализация видео' },
-        video_download: { start: 15, end: 50, label: 'Загрузка видео сегментов' },
-        video_process: { start: 50, end: 60, label: 'Обработка видео' },
-        audio_init: { start: 60, end: 65, label: 'Инициализация аудио' },
-        audio_download: { start: 65, end: 80, label: 'Загрузка аудио сегментов' },
-        audio_process: { start: 80, end: 85, label: 'Обработка аудио' },
-        merge_init: { start: 85, end: 88, label: 'Подготовка к склейке' },
-        merge_process: { start: 88, end: 97, label: 'Склейка файлов' },
-        finalization: { start: 97, end: 100, label: 'Финализация' }
-    },
 
     reset() {
         this.currentProgress = 0;
-        this.targetProgress = 0;
-        if (this.animationFrameId) {
-            cancelAnimationFrame(this.animationFrameId);
-            this.animationFrameId = null;
-        }
+        progressFill.style.width = '0%';
+        progressPercent.textContent = '0%';
+        progressStatus.textContent = 'Подготовка…';
+        resetStages();
     },
 
     setProgress(progress, status) {
-        // Ограничиваем прогресс в разумных пределах
-        this.targetProgress = Math.min(100, Math.max(0, progress));
-
-        // Если разница большая, то анимируем плавно
-        if (Math.abs(this.targetProgress - this.currentProgress) > 0.5) {
-            this.animateToTarget(status);
-        } else {
-            this.updateProgressBar(this.targetProgress, status);
-        }
-    },
-
-    animateToTarget(status) {
-        if (this.animationFrameId) {
-            cancelAnimationFrame(this.animationFrameId);
-        }
-
-        const animate = () => {
-            const diff = this.targetProgress - this.currentProgress;
-            const step = diff * 0.1; // Скорость анимации 10% от оставшегося расстояния
-
-            if (Math.abs(diff) > 0.1) {
-                this.currentProgress += step;
-                this.updateProgressBar(this.currentProgress, status);
-                this.animationFrameId = requestAnimationFrame(animate);
-            } else {
-                this.currentProgress = this.targetProgress;
-                this.updateProgressBar(this.currentProgress, status);
-                this.animationFrameId = null;
-            }
-        };
-
-        animate();
-    },
-
-    updateProgressBar(progress, status) {
-        progressFill.style.width = `${progress}%`;
-        progressPercent.textContent = `${Math.round(progress)}%`;
-
+        const clamped = Math.min(100, Math.max(0, progress));
+        this.currentProgress = clamped;
+        progressFill.style.width = `${clamped}%`;
+        progressPercent.textContent = `${Math.round(clamped)}%`;
         if (status) {
             progressStatus.textContent = status;
         }
-
-        // Обновляем этапы на основе прогресса
-        this.updateStages(progress);
+        this.updateStages(clamped);
     },
 
     updateStages(progress) {
-        let activeStage = 'video';
-
-        if (progress >= 85) {
-            activeStage = 'merge';
-        } else if (progress >= 60) {
-            activeStage = 'audio';
-        }
-
-        // Отмечаем завершенные этапы
-        if (progress >= 60) {
-            setStageCompleted('video');
-        }
-        if (progress >= 85) {
-            setStageCompleted('audio');
-        }
         if (progress >= 100) {
+            setStageCompleted('video');
+            setStageCompleted('audio');
             setStageCompleted('merge');
+            return;
+        }
+
+        if (progress >= 85) {
+            setStageCompleted('video');
+            setStageCompleted('audio');
+            setStageActive('merge');
+        } else if (progress >= 60) {
+            setStageCompleted('video');
+            setStageActive('audio');
         } else {
-            setStageActive(activeStage);
+            setStageActive('video');
         }
-    },
-
-    // Интеллектуальное определение этапа по статусу FFmpeg
-    getProgressFromStatus(status) {
-        if (!status) return null;
-
-        const statusLower = status.toLowerCase();
-
-        // Анализ видео этапов
-        if (statusLower.includes('подготовка') || statusLower.includes('инициализация')) {
-            return Math.random() * 10 + 5; // 5-15%
-        }
-
-        if (statusLower.includes('видео') || statusLower.includes('video')) {
-            if (statusLower.includes('загруз') || statusLower.includes('download')) {
-                return Math.random() * 35 + 15; // 15-50%
-            }
-            if (statusLower.includes('обработ') || statusLower.includes('process')) {
-                return Math.random() * 10 + 50; // 50-60%
-            }
-        }
-
-        // Анализ аудио этапов
-        if (statusLower.includes('аудио') || statusLower.includes('audio')) {
-            if (statusLower.includes('загруз') || statusLower.includes('download')) {
-                return Math.random() * 15 + 65; // 65-80%
-            }
-            if (statusLower.includes('обработ') || statusLower.includes('process')) {
-                return Math.random() * 5 + 80; // 80-85%
-            }
-        }
-
-        // Анализ этапов склейки
-        if (statusLower.includes('склей') || statusLower.includes('merge') ||
-            statusLower.includes('финализ') || statusLower.includes('final')) {
-            if (statusLower.includes('подготовк')) {
-                return Math.random() * 3 + 85; // 85-88%
-            }
-            return Math.random() * 9 + 88; // 88-97%
-        }
-
-        return null;
     }
 };
-
-function updateProgress(value, status) {
-    ProgressTracker.setProgress(value, status);
-}
-
 
 async function startDownload() {
     // Защита от двойных кликов
@@ -719,7 +664,7 @@ async function startDownload() {
     isDownloading = true;
     hideError(downloadError);
     resetProgress();
-    progressContainer.style.display = 'block';
+    progressContainer.classList.add('visible');
     downloadBtn.disabled = true;
     downloadBtn.textContent = 'Скачивается...';
 
@@ -730,77 +675,26 @@ async function startDownload() {
 
         // Set initial stage
         setStageActive('video');
-        updateProgress(5, 'Подготовка к скачиванию...');
+        ProgressTracker.setProgress(1, 'Подготовка к скачиванию...');
 
         // Очищаем предыдущий listener если есть
         if (currentProgressListener) {
             window.electronAPI.removeProgressListener();
         }
 
-        // Счетчик для имитации прогресса между реальными обновлениями
-        let lastRealProgress = 0;
-        let progressSimulator = null;
-
-        // Функция для имитации прогресса
-        const simulateProgress = (fromProgress, toProgress, duration = 2000) => {
-            if (progressSimulator) {
-                clearInterval(progressSimulator);
-            }
-
-            const steps = 20; // Количество шагов анимации
-            const stepTime = duration / steps;
-            const stepSize = (toProgress - fromProgress) / steps;
-            let currentStep = 0;
-
-            progressSimulator = setInterval(() => {
-                if (currentStep < steps) {
-                    const simulatedProgress = fromProgress + (stepSize * currentStep);
-                    updateProgress(simulatedProgress, `Загрузка ${Math.round(simulatedProgress)}%...`);
-                    currentStep++;
-                } else {
-                    clearInterval(progressSimulator);
-                    progressSimulator = null;
-                }
-            }, stepTime);
-        };
-
-        // Setup progress listener с улучшенной логикой
         currentProgressListener = (progressData) => {
-            const { progress, status } = progressData;
+            const rawProgress = Number(progressData?.progress ?? 0);
+            const progress = Math.min(100, Math.max(0, rawProgress));
+            const status = typeof progressData?.status === 'string' && progressData.status.trim().length > 0
+                ? progressData.status.trim()
+                : 'Загрузка...';
 
-            // Останавливаем симуляцию если получили реальный прогресс
-            if (progressSimulator) {
-                clearInterval(progressSimulator);
-                progressSimulator = null;
-            }
+            ProgressTracker.setProgress(progress, status);
 
-            // Обновляем последний реальный прогресс
-            lastRealProgress = progress;
-
-            // Пытаемся определить прогресс из статуса FFmpeg
-            let smartProgress = ProgressTracker.getProgressFromStatus(status);
-            if (smartProgress !== null && smartProgress > progress) {
-                smartProgress = Math.min(smartProgress, progress + 10); // Не убегаем далеко от реального прогресса
-            } else {
-                smartProgress = progress;
-            }
-
-            // Обновляем прогресс с умным статусом
-            updateProgress(smartProgress, status || 'Загрузка...');
-
-            // Добавляем в лог только значимые изменения
-            if (Math.abs(smartProgress - ProgressTracker.currentProgress) > 2 || status) {
-                addLogEntry(`${Math.round(smartProgress)}% - ${status || 'Загрузка...'}`, 'info');
-            }
-
-            // Запускаем имитацию до следующего ожидаемого прогресса
-            const nextExpectedProgress = Math.min(smartProgress + 15, 95);
-            if (nextExpectedProgress > smartProgress) {
-                setTimeout(() => {
-                    if (!progressSimulator && ProgressTracker.currentProgress < nextExpectedProgress) {
-                        simulateProgress(ProgressTracker.currentProgress, nextExpectedProgress, 3000);
-                    }
-                }, 1000);
+            if (Math.abs(progress - lastLoggedProgress) >= 1 || status !== lastLoggedStatus) {
+                addLogEntry(`${Math.round(progress)}% — ${status}`, 'info');
+                lastLoggedProgress = progress;
+                lastLoggedStatus = status;
             }
         };
 
@@ -816,61 +710,35 @@ async function startDownload() {
         };
 
         addLogEntry('Запуск FFmpeg для скачивания сегментов', 'info');
-
-        // Инициализируем прогресс с детальными этапами
-        updateProgress(2, 'Инициализация загрузки...');
-
-        // Небольшая задержка для демонстрации начального этапа
-        await new Promise(resolve => setTimeout(resolve, 500));
-        updateProgress(5, 'Подготовка к загрузке видео...');
+        ProgressTracker.setProgress(2, 'Инициализация загрузки...');
 
         // Start real download with progress tracking
         const result = await window.electronAPI.startDownload(payload);
-
-        // Останавливаем все симуляции
-        if (progressSimulator) {
-            clearInterval(progressSimulator);
-            progressSimulator = null;
-        }
 
         if (!result || !result.success) {
             throw new Error(result?.error || 'Скачивание завершилось с ошибкой');
         }
 
-        // Завершающие этапы с детализацией
-        updateProgress(95, 'Проверка целостности файла...');
-        await new Promise(resolve => setTimeout(resolve, 300));
-
-        updateProgress(98, 'Финализация загрузки...');
-        await new Promise(resolve => setTimeout(resolve, 200));
-
-        // Complete all stages
+        ProgressTracker.setProgress(100, 'Загрузка завершена');
         setStageCompleted('video');
         setStageCompleted('audio');
         setStageCompleted('merge');
-        updateProgress(100, 'Загрузка завершена');
 
         state.downloadResultPath = result.output_path;
         addLogEntry(`Файл успешно сохранен: ${result.output_path}`, 'success');
-        successSection.style.display = 'block';
+        successSection.classList.add('visible');
     } catch (error) {
         console.error('Ошибка скачивания:', error);
         const message = error instanceof Error ? error.message : 'Неизвестная ошибка';
         addLogEntry(`Ошибка: ${message}`, 'error');
         showError(downloadError, `Не удалось скачать файл: ${message}`);
         resetStages();
-        progressContainer.style.display = 'none';
+        progressContainer.classList.remove('visible');
     } finally {
         // Всегда восстанавливаем состояние
         isDownloading = false;
         downloadBtn.disabled = false;
         downloadBtn.textContent = 'Скачать';
-
-        // Останавливаем симуляцию прогресса
-        if (progressSimulator) {
-            clearInterval(progressSimulator);
-            progressSimulator = null;
-        }
 
         // Clean up progress listener
         if (currentProgressListener) {
