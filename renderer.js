@@ -454,13 +454,8 @@ async function analyzeFileAndProceed() {
         hideError(errorMessage);
         resetTracks();
 
-        // Добавляем таймаут для операции
-        const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Таймаут анализа файла (30 сек)')), 30000);
-        });
-
-        const tracksPromise = window.electronAPI.getTracks(state.filePath);
-        const tracks = await Promise.race([tracksPromise, timeoutPromise]);
+        // Анализируем файл
+        const tracks = await window.electronAPI.getTracks(state.filePath);
         state.videoTracks = Array.isArray(tracks.video) ? tracks.video : [];
         state.audioTracks = Array.isArray(tracks.audio) ? tracks.audio : [];
 
@@ -829,13 +824,8 @@ async function startDownload() {
         await new Promise(resolve => setTimeout(resolve, 500));
         updateProgress(5, 'Подготовка к загрузке видео...');
 
-        // Start real download with progress tracking and timeout
-        const downloadTimeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Таймаут скачивания (10 минут)')), 10 * 60 * 1000);
-        });
-
-        const downloadPromise = window.electronAPI.startDownload(payload);
-        const result = await Promise.race([downloadPromise, downloadTimeoutPromise]);
+        // Start real download with progress tracking
+        const result = await window.electronAPI.startDownload(payload);
 
         // Останавливаем все симуляции
         if (progressSimulator) {
