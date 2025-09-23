@@ -26,6 +26,7 @@ let logEntryCount = 0;
 const MAX_LOG_ENTRIES = 100;
 let lastLoggedProgress = -1;
 let lastLoggedStatus = '';
+let defaultThreadValue = 4;
 
 function initDomElements() {
     themeToggle = document.getElementById('themeToggle');
@@ -60,6 +61,11 @@ function initDomElements() {
     successSection = document.getElementById('successSection');
     showFileBtn = document.getElementById('showFileBtn');
     downloadError = document.getElementById('downloadError');
+
+    if (threadRange) {
+        const rawDefault = Number(threadRange.defaultValue ?? threadRange.value ?? threadRange.min);
+        defaultThreadValue = Number.isFinite(rawDefault) ? rawDefault : 4;
+    }
 }
 
 function applyTheme() {
@@ -107,6 +113,7 @@ function goToNextStep() {
 
 function goToPreviousStep() {
     if (state.currentStep === 'track-selection') {
+        resetDownloadWorkflow({ preserveFolder: true });
         showStep('file-selection');
     } else if (state.currentStep === 'download-settings') {
         showStep('track-selection');
@@ -208,34 +215,6 @@ function createTrackElement(track, type) {
     return element;
 }
 
-function createAudioPassthroughElement() {
-    const emptyAudio = document.createElement('button');
-    emptyAudio.type = 'button';
-    emptyAudio.className = 'track-item';
-    emptyAudio.dataset.type = 'audio';
-    emptyAudio.dataset.id = '-1';
-
-    const radio = document.createElement('div');
-    radio.className = 'track-radio';
-
-    const info = document.createElement('div');
-    info.className = 'track-info';
-
-    const title = document.createElement('div');
-    title.className = 'track-title';
-    title.textContent = 'Использовать звук из видео';
-
-    const details = document.createElement('div');
-    details.className = 'track-details';
-    details.textContent = 'Отдельная аудиодорожка не скачается';
-
-    info.appendChild(title);
-    info.appendChild(details);
-    emptyAudio.appendChild(radio);
-    emptyAudio.appendChild(info);
-    return emptyAudio;
-}
-
 function attachTrackListHandlers() {
     if (videoTracksList && !videoTracksList.dataset.listenerAttached) {
         videoTracksList.addEventListener('click', handleTrackSelection);
@@ -259,7 +238,7 @@ function handleTrackSelection(event) {
     if (type === 'video') {
         state.selectedVideo = Number.isNaN(id) ? null : id;
     } else if (type === 'audio') {
-        state.selectedAudio = id >= 0 && !Number.isNaN(id) ? id : null;
+        state.selectedAudio = Number.isNaN(id) ? null : id;
     }
 
     updateTrackSelections();
@@ -282,9 +261,7 @@ function updateTrackSelections() {
 
     audioTracksList.querySelectorAll('.track-item').forEach((item) => {
         const id = Number(item.dataset.id);
-        const isPassthrough = item.dataset.id === '-1';
-        const shouldSelect = (isPassthrough && state.selectedAudio === null) || (!Number.isNaN(id) && state.selectedAudio === id);
-        if (shouldSelect) {
+        if (!Number.isNaN(id) && state.selectedAudio === id) {
             item.classList.add('selected');
         } else {
             item.classList.remove('selected');
@@ -310,7 +287,6 @@ function renderTracks(force = false) {
         videoTracksList.replaceChildren(videoFragment);
 
         const audioFragment = document.createDocumentFragment();
-        audioFragment.appendChild(createAudioPassthroughElement());
         state.audioTracks.forEach((track) => {
             const element = createTrackElement(track, 'audio');
             audioFragment.appendChild(element);
@@ -321,6 +297,24 @@ function renderTracks(force = false) {
     }
 
     updateTrackSelections();
+}
+
+
+function getDefaultVideoId() {
+    if (!Array.isArray(state.videoTracks) || state.videoTracks.length === 0) {
+        return null;
+    }
+    const lastTrack = state.videoTracks[state.videoTracks.length - 1];
+    return typeof lastTrack?.id === 'number' ? lastTrack.id : null;
+}
+
+function getDefaultAudioId() {
+    if (!Array.isArray(state.audioTracks) || state.audioTracks.length === 0) {
+        return null;
+    }
+    const preferred = state.audioTracks.find((track) => track.is_default);
+    const target = preferred || state.audioTracks[0];
+    return typeof target?.id === 'number' ? target.id : null;
 }
 
 
@@ -368,15 +362,31 @@ function updateDownloadButton() {
 
 function resetProgress() {
     ProgressTracker.reset();
-    progressFill.style.width = '0%';
-    progressPercent.textContent = '0%';
-    progressStatus.textContent = 'Подготовка…';
-    progressContainer.classList.remove('visible');
-    successSection.classList.remove('visible');
+    if (progressFill) {
+        progressFill.style.width = '0%';
+    }
+    if (progressPercent) {
+        progressPercent.textContent = '0%';
+    }
+    if (progressStatus) {
+        progressStatus.textContent = 'Подготовка…';
+    }
+    if (progressContainer) {
+        progressContainer.classList.remove('visible');
+    }
+    if (successSection) {
+        successSection.classList.remove('visible');
+    }
     resetStages();
     clearLog();
     lastLoggedProgress = -1;
     lastLoggedStatus = '';
+    if (logContent) {
+        logContent.classList.remove('expanded');
+    }
+    if (logToggle) {
+        logToggle.textContent = '↓';
+    }
 }
 
 function resetStages() {
@@ -413,6 +423,85 @@ function clearLog() {
         logContent.removeChild(logContent.firstChild);
     }
     logEntryCount = 0;
+}
+
+function detachProgressListener() {
+    if (currentProgressListener) {
+        window.electronAPI.removeProgressListener();
+        currentProgressListener = null;
+    }
+}
+
+function resetDownloadWorkflow({ preserveFolder = true } = {}) {
+    detachProgressListener();
+    isDownloading = false;
+
+    state.filePath = null;
+    state.fileName = null;
+
+    state.videoTracks = [];
+    state.audioTracks = [];
+    state.selectedVideo = null;
+    state.selectedAudio = null;
+    state.downloadResultPath = null;
+    currentTrackRenderKey = null;
+
+    resetTracks();
+    if (tracksSection) {
+        tracksSection.hidden = true;
+    }
+    resetProgress();
+
+    if (dropZone) {
+        dropZone.classList.remove('dragover');
+    }
+
+    if (fileInput) {
+        fileInput.value = '';
+    }
+
+    if (filenameInput) {
+        filenameInput.value = '';
+    }
+
+    if (threadRange) {
+        threadRange.value = `${defaultThreadValue}`;
+        if (threadValue) {
+            updateThreadValue();
+        }
+    }
+
+    if (!preserveFolder) {
+        state.downloadFolder = null;
+        if (downloadPath) {
+            downloadPath.textContent = 'Определяется…';
+            downloadPath.title = '';
+        }
+    }
+
+    if (errorMessage) {
+        hideError(errorMessage);
+    }
+    if (downloadError) {
+        hideError(downloadError);
+    }
+
+    if (downloadBtn) {
+        downloadBtn.disabled = true;
+        downloadBtn.textContent = 'Скачать';
+    }
+
+    if (nextBtn) {
+        nextBtn.disabled = true;
+    }
+
+    if (analyzeBtn) {
+        analyzeBtn.disabled = false;
+        analyzeBtn.textContent = 'Показать дорожки';
+    }
+
+    updateNextButton();
+    updateDownloadButton();
 }
 
 function addLogEntry(message, type = 'info') {
@@ -476,6 +565,7 @@ function handleFile(file) {
     // M3U8 файлы могут иметь различные MIME типы или вообще не иметь их
     // Поэтому полагаемся в основном на расширение файла
 
+    resetDownloadWorkflow({ preserveFolder: true });
     hideError(errorMessage);
     state.filePath = file.path;
     state.fileName = file.name;
@@ -506,8 +596,8 @@ async function analyzeFileAndProceed() {
             return;
         }
 
-        state.selectedVideo = state.videoTracks[0]?.id ?? null;
-        state.selectedAudio = null;
+        state.selectedVideo = getDefaultVideoId();
+        state.selectedAudio = getDefaultAudioId();
 
         // Заполняем имя файла
         const baseName = state.fileName.replace(/\.m3u8$/i, '');
@@ -546,8 +636,8 @@ async function analyzeFile() {
             return;
         }
 
-        state.selectedVideo = state.videoTracks[0]?.id ?? null;
-        state.selectedAudio = null;
+        state.selectedVideo = getDefaultVideoId();
+        state.selectedAudio = getDefaultAudioId();
 
         tracksSection.hidden = false;
         renderTracks();
@@ -678,9 +768,7 @@ async function startDownload() {
         ProgressTracker.setProgress(1, 'Подготовка к скачиванию...');
 
         // Очищаем предыдущий listener если есть
-        if (currentProgressListener) {
-            window.electronAPI.removeProgressListener();
-        }
+        detachProgressListener();
 
         currentProgressListener = (progressData) => {
             const rawProgress = Number(progressData?.progress ?? 0);
@@ -741,10 +829,7 @@ async function startDownload() {
         downloadBtn.textContent = 'Скачать';
 
         // Clean up progress listener
-        if (currentProgressListener) {
-            window.electronAPI.removeProgressListener();
-            currentProgressListener = null;
-        }
+        detachProgressListener();
     }
 }
 

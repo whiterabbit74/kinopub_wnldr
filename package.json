@@ -33,9 +33,6 @@
         "directories": {
             "output": "dist"
         },
-        "asarUnpack": [
-            "*.py"
-        ],
         "files": [
             "**/*",
             "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
