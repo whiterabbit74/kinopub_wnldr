@@ -9,15 +9,31 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
+
+# Ensure common FFmpeg paths are in PATH
+current_path = os.environ.get('PATH', '')
+homebrew_paths = ['/opt/homebrew/bin', '/usr/local/bin']
+for path in homebrew_paths:
+    if path not in current_path and os.path.isdir(path):
+        os.environ['PATH'] = f"{path}:{current_path}"
 
 from utils import parse_m3u8_content, read_m3u8_source, sanitize_filename
 
 
 def print_json(data: Dict[str, Any]) -> None:
-    json.dump(data, sys.stdout, ensure_ascii=False)
+    # Redirect any accidental prints to stderr
+    import sys
+    json.dump(data, sys.stdout, ensure_ascii=False, separators=(',', ':'))
     sys.stdout.write("\n")
     sys.stdout.flush()
+
+def print_progress(data: Dict[str, Any]) -> None:
+    # Send progress updates to stderr so they don't interfere with final result JSON
+    import sys
+    progress_line = "PROGRESS:" + json.dumps(data, ensure_ascii=False, separators=(',', ':'))
+    sys.stderr.write(progress_line + "\n")
+    sys.stderr.flush()
 
 
 def get_tracks_command(path: str) -> None:
@@ -36,11 +52,27 @@ def _ensure_extension(filename: str) -> str:
     return filename if filename.lower().endswith('.mp4') else f"{filename}.mp4"
 
 
-def download_with_ffmpeg(master: str, video_track: Dict[str, Any] | None, audio_track: Dict[str, Any] | None,
+def download_with_ffmpeg(master: str, video_track: Optional[Dict[str, Any]], audio_track: Optional[Dict[str, Any]],
                           output_dir: str, filename: str, threads: int) -> Dict[str, Any]:
-    ffmpeg_path = shutil.which('ffmpeg')
+    # Try to find FFmpeg in multiple locations
+    ffmpeg_candidates = [
+        'ffmpeg',  # System PATH
+        '/usr/local/bin/ffmpeg',  # Homebrew default
+        '/opt/homebrew/bin/ffmpeg',  # Homebrew ARM64
+        '/usr/bin/ffmpeg',  # System default
+    ]
+
+    ffmpeg_path = None
+    for candidate in ffmpeg_candidates:
+        if shutil.which(candidate):
+            ffmpeg_path = candidate
+            break
+
     if not ffmpeg_path:
-        return {"success": False, "error": "FFmpeg не найден в системе"}
+        return {
+            "success": False,
+            "error": "FFmpeg не найден в системе. Установите FFmpeg через Homebrew: 'brew install ffmpeg' или скачайте с https://ffmpeg.org"
+        }
 
     output_dir_path = Path(output_dir).expanduser()
     output_dir_path.mkdir(parents=True, exist_ok=True)
@@ -66,20 +98,49 @@ def download_with_ffmpeg(master: str, video_track: Dict[str, Any] | None, audio_
 
     command.append(str(output_path))
 
-    process = subprocess.run(command, capture_output=True, text=True)
-    if process.returncode != 0:
+    # Print progress updates
+    print_progress({"progress": 20, "status": "Запуск FFmpeg..."})
+
+    try:
+        process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+        # Monitor progress
+        stderr_output = []
+        while True:
+            stderr_line = process.stderr.readline()
+            if stderr_line:
+                stderr_output.append(stderr_line.strip())
+                # Look for FFmpeg progress indicators
+                if "time=" in stderr_line:
+                    print_progress({"progress": 60, "status": "Обработка видео..."})
+                elif "video:" in stderr_line and "audio:" in stderr_line:
+                    print_progress({"progress": 90, "status": "Финализация..."})
+            elif process.poll() is not None:
+                break
+
+        # Wait for process to complete
+        process.wait()
+
+        if process.returncode != 0:
+            stderr_full = '\n'.join(stderr_output)
+            return {
+                "success": False,
+                "error": stderr_full.strip() or "FFmpeg завершился с ошибкой",
+            }
+
+        print_progress({"progress": 100, "status": "Готово"})
+        return {
+            "success": True,
+            "output_path": str(output_path),
+        }
+    except Exception as e:
         return {
             "success": False,
-            "error": process.stderr.strip() or "FFmpeg завершился с ошибкой",
+            "error": f"Ошибка выполнения FFmpeg: {str(e)}",
         }
 
-    return {
-        "success": True,
-        "output_path": str(output_path),
-    }
 
-
-def download_command(path: str, video_index: int | None, audio_index: int | None,
+def download_command(path: str, video_index: Optional[int], audio_index: Optional[int],
                      output_dir: str, filename: str, threads: int) -> None:
     content, base_url = read_m3u8_source(path)
     parsed = parse_m3u8_content(content, base_url)
@@ -98,7 +159,7 @@ def download_command(path: str, video_index: int | None, audio_index: int | None
     print_json(result)
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: Optional[list] = None) -> None:
     parser = argparse.ArgumentParser(description='M3U8 helper')
     subparsers = parser.add_subparsers(dest='command', required=True)
 

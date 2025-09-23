@@ -67,11 +67,25 @@ contextBridge.exposeInMainWorld('electronAPI', {
         return await ipcRenderer.invoke('get-downloads-path');
     },
 
+    // Listen for download progress updates
+    onDownloadProgress: (callback) => {
+        if (typeof callback !== 'function') {
+            throw new Error('Progress callback must be a function');
+        }
+        ipcRenderer.on('download-progress', (event, data) => callback(data));
+    },
+
+    // Remove progress listener
+    removeProgressListener: () => {
+        ipcRenderer.removeAllListeners('download-progress');
+    },
+
     // Remove all listeners (for cleanup)
     removeAllListeners: () => {
         ALLOWED_CHANNELS.forEach(channel => {
             ipcRenderer.removeAllListeners(channel);
         });
+        ipcRenderer.removeAllListeners('download-progress');
     }
 });
 

@@ -22,17 +22,28 @@
             --radius-small: 10px;
         }
 
+        /* Fallback CSS для старых браузеров */
+        body {
+            background: #f5f5f7;
+            color: #1d1d1f;
+        }
+
+        [data-theme="dark"] body {
+            background: #0f0f0f;
+            color: #ffffff;
+        }
+
         [data-theme="dark"] {
-            --bg-primary: #0c0c0d;
-            --bg-elevated: #1c1c1e;
-            --bg-tertiary: #2c2c2e;
-            --text-primary: #f5f5f7;
-            --text-secondary: #d1d1d6;
-            --text-muted: #8e8e93;
+            --bg-primary: #0f0f0f;
+            --bg-elevated: #1a1a1a;
+            --bg-tertiary: #252525;
+            --text-primary: #ffffff;
+            --text-secondary: #e5e5e7;
+            --text-muted: #a1a1aa;
             --accent: #64d2ff;
-            --accent-soft: rgba(100, 210, 255, 0.24);
-            --border: rgba(84, 84, 88, 0.65);
-            --shadow: 0 40px 80px -24px rgba(15, 23, 42, 0.7);
+            --accent-soft: rgba(100, 210, 255, 0.15);
+            --border: rgba(255, 255, 255, 0.1);
+            --shadow: 0 40px 80px -24px rgba(0, 0, 0, 0.5);
         }
 
         * {
@@ -79,18 +90,28 @@
             padding: 10px 16px;
             border-radius: 999px;
             border: 1px solid var(--border);
-            background: var(--bg-elevated);
-            color: var(--text-primary);
+            background: linear-gradient(135deg, #e8d8f5, #d1c4e9);
+            color: #4a2c5a;
             font-size: 14px;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 12px 30px -16px rgba(15, 23, 42, 0.35);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 8px 25px -8px rgba(232, 216, 245, 0.4);
         }
 
         .theme-toggle:hover {
-            background: var(--accent);
-            color: #fff;
-            border-color: transparent;
+            background: linear-gradient(135deg, #dcc7ec, #c5b8e3);
+            transform: translateY(-1px);
+            box-shadow: 0 12px 35px -12px rgba(232, 216, 245, 0.5);
+        }
+
+        [data-theme="dark"] .theme-toggle {
+            background: linear-gradient(135deg, #dcc7ec, #c5b8e3);
+            color: #2a1a2a;
+        }
+
+        [data-theme="dark"] .theme-toggle:hover {
+            background: linear-gradient(135deg, #d1bce6, #baade0);
         }
 
         .card {
@@ -100,7 +121,19 @@
             margin-bottom: 28px;
             border: 1px solid var(--border);
             box-shadow: var(--shadow);
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            transition: transform 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease;
+        }
+
+        .step {
+            opacity: 1;
+            transform: translateX(0);
+            transition: opacity 0.3s ease, transform 0.3s ease;
+        }
+
+        .step[hidden] {
+            opacity: 0;
+            transform: translateX(20px);
+            pointer-events: none;
         }
 
         .card:hover {
@@ -205,20 +238,44 @@
         }
 
         .btn-primary {
-            background: linear-gradient(135deg, var(--accent), #4c6ef5);
-            color: #fff;
-            box-shadow: 0 20px 40px -20px rgba(24, 144, 255, 0.6);
+            background: linear-gradient(135deg, #a8e6cf, #7fcdcd);
+            color: #2d3748;
+            box-shadow: 0 8px 25px -8px rgba(168, 230, 207, 0.4);
+            border: 1px solid rgba(168, 230, 207, 0.3);
         }
 
         .btn-primary:hover {
+            background: linear-gradient(135deg, #98e4c4, #6fc4c4);
             transform: translateY(-1px);
-            box-shadow: 0 24px 60px -24px rgba(24, 144, 255, 0.7);
+            box-shadow: 0 12px 35px -12px rgba(168, 230, 207, 0.5);
         }
 
         .btn-secondary {
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            border: 1px solid var(--border);
+            background: linear-gradient(135deg, #ffd3a5, #fd9853);
+            color: #744210;
+            border: 1px solid rgba(255, 211, 165, 0.4);
+            box-shadow: 0 8px 25px -8px rgba(255, 211, 165, 0.3);
+        }
+
+        .btn-secondary:hover {
+            background: linear-gradient(135deg, #ffcc99, #fc8f47);
+            transform: translateY(-1px);
+            box-shadow: 0 12px 35px -12px rgba(255, 211, 165, 0.4);
+        }
+
+        [data-theme="dark"] .btn-primary {
+            background: linear-gradient(135deg, #a8e6cf, #7fcdcd);
+            color: #1a1a1a;
+        }
+
+        [data-theme="dark"] .btn-secondary {
+            background: linear-gradient(135deg, #ffb3ba, #ff9aa2);
+            color: #2d1b1b;
+            border: 1px solid rgba(255, 179, 186, 0.3);
+        }
+
+        [data-theme="dark"] .btn-secondary:hover {
+            background: linear-gradient(135deg, #ffa3aa, #ff8a92);
         }
 
         .btn:disabled {
@@ -241,34 +298,74 @@
         }
 
         .track-item {
-            padding: 16px;
-            border-radius: var(--radius-medium);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: var(--radius-small);
             border: 1px solid var(--border);
             background: var(--bg-tertiary);
             cursor: pointer;
             transition: all 0.2s ease;
+            position: relative;
         }
 
         .track-item:hover {
             border-color: var(--accent);
-            transform: translateY(-2px);
+            background: var(--accent-soft);
         }
 
         .track-item.selected {
-            background: linear-gradient(135deg, rgba(10, 132, 255, 0.18), rgba(10, 132, 255, 0.05));
-            border-color: var(--accent);
-            box-shadow: 0 20px 40px -24px rgba(10, 132, 255, 0.4);
+            background: rgba(52, 199, 89, 0.15);
+            border-color: #30d158;
+        }
+
+        .track-radio {
+            width: 18px;
+            height: 18px;
+            border: 2px solid var(--border);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            transition: all 0.2s ease;
+        }
+
+        .track-item.selected .track-radio {
+            border-color: #30d158;
+            background: #30d158;
+        }
+
+        .track-item.selected .track-radio::after {
+            content: '';
+            width: 6px;
+            height: 6px;
+            background: white;
+            border-radius: 50%;
+        }
+
+        .track-info {
+            flex: 1;
+            min-width: 0;
         }
 
         .track-title {
             font-weight: 600;
-            margin-bottom: 4px;
+            margin-bottom: 2px;
+            font-size: 15px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .track-details {
-            font-size: 13px;
+            font-size: 12px;
             color: var(--text-muted);
-            line-height: 1.4;
+            line-height: 1.3;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .form-grid {
@@ -286,7 +383,7 @@
             color: var(--text-secondary);
         }
 
-        .form-field input,
+        .form-field input[type="text"],
         .form-field select {
             width: 100%;
             padding: 12px 16px;
@@ -298,11 +395,58 @@
             transition: border 0.2s ease, box-shadow 0.2s ease;
         }
 
-        .form-field input:focus,
+        .form-field input[type="text"]:focus,
         .form-field select:focus {
             outline: none;
             border-color: var(--accent);
             box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25);
+        }
+
+        .form-field input[type="range"] {
+            width: 100%;
+            height: 6px;
+            border-radius: 3px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            outline: none;
+            margin: 8px 0;
+            cursor: pointer;
+            -webkit-appearance: none;
+        }
+
+        .form-field input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 4px 12px rgba(10, 132, 255, 0.4);
+            transition: all 0.2s ease;
+        }
+
+        .form-field input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 16px rgba(10, 132, 255, 0.6);
+        }
+
+        .form-field input[type="range"]::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 4px 12px rgba(10, 132, 255, 0.4);
+        }
+
+        .range-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
         }
 
         .path-display {
@@ -349,6 +493,129 @@
             color: var(--text-secondary);
             display: flex;
             justify-content: space-between;
+        }
+
+        .progress-stages {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .stage {
+            padding: 8px 16px;
+            border-radius: 999px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            font-size: 13px;
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+            opacity: 0.5;
+        }
+
+        .stage.active {
+            background: linear-gradient(135deg, #ff9f0a, #ff8c00);
+            color: white;
+            border-color: transparent;
+            opacity: 1;
+            transform: scale(1.05);
+            box-shadow: 0 8px 20px -8px rgba(255, 143, 0, 0.6);
+        }
+
+        .stage.completed {
+            background: linear-gradient(135deg, #30d158, #34c759);
+            color: white;
+            border-color: transparent;
+            opacity: 1;
+        }
+
+        .log-container {
+            margin-top: 20px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-medium);
+            background: var(--bg-tertiary);
+            overflow: hidden;
+        }
+
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            background: var(--bg-elevated);
+            border-bottom: 1px solid var(--border);
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .log-toggle {
+            background: linear-gradient(135deg, #f0f0f0, #e0e0e0);
+            border: 1px solid var(--border);
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 8px 12px;
+            border-radius: 999px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            box-shadow: 0 4px 15px -4px rgba(0, 0, 0, 0.1);
+        }
+
+        .log-toggle:hover {
+            background: linear-gradient(135deg, #e8e8e8, #d8d8d8);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px -6px rgba(0, 0, 0, 0.15);
+        }
+
+        [data-theme="dark"] .log-toggle {
+            background: linear-gradient(135deg, #3a3a3a, #2a2a2a);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+
+        [data-theme="dark"] .log-toggle:hover {
+            background: linear-gradient(135deg, #4a4a4a, #3a3a3a);
+        }
+
+        .log-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            font-family: "SF Mono", "JetBrains Mono", monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        .log-content.expanded {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .log-entry {
+            padding: 6px 16px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            color: var(--text-secondary);
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-entry.info {
+            color: var(--accent);
+        }
+
+        .log-entry.success {
+            color: #30d158;
+        }
+
+        .log-entry.warning {
+            color: #ff9f0a;
+        }
+
+        .log-entry.error {
+            color: #ff3b30;
         }
 
         .success-message {
@@ -403,26 +670,26 @@
             </button>
         </header>
 
+        <!-- Back button -->
+        <button class="btn btn-secondary" id="backBtn" type="button" style="display: none; margin-bottom: 20px;">← Назад</button>
+
         <main>
-            <section class="card" id="fileSection">
-                <h2>1. Выберите файл плейлиста</h2>
+            <!-- Блок 1: Выбор файла -->
+            <section class="card step" id="file-selection">
+                <h2>Выберите файл плейлиста</h2>
                 <div class="drop-zone" id="dropZone">
                     <div class="drop-icon">📂</div>
                     <div class="drop-title">Перетащите сюда файл формата M3U8</div>
                     <div class="drop-subtitle">или нажмите, чтобы выбрать его вручную</div>
                     <input type="file" id="fileInput" class="file-input" accept=".m3u8">
                 </div>
-                <p class="hint">После выбора файла нажмите «Показать дорожки», чтобы увидеть доступные видео и аудио варианты.</p>
                 <div class="error-message" id="errorMessage"></div>
-                <div class="file-meta" id="fileMeta" hidden>
-                    <span class="file-name" id="fileName"></span>
-                    <button class="btn btn-primary" id="analyzeBtn" type="button">Показать дорожки</button>
-                </div>
             </section>
 
-            <section class="card" id="tracksSection" hidden>
-                <h2>2. Выберите видео и аудио дорожки</h2>
-                <p class="subtitle">Вы можете смешивать дорожки разного качества. Если оставить аудио невыбранным, будет использована дорожка из видео.</p>
+            <!-- Блок 2: Выбор дорожек -->
+            <section class="card step" id="track-selection" hidden>
+                <h2>Выберите видео и аудио дорожки</h2>
+                <p class="subtitle">Выберите нужные дорожки для скачивания</p>
                 <div class="tracks-grid">
                     <div>
                         <h3>Видео</h3>
@@ -433,14 +700,20 @@
                         <div class="track-list" id="audioTracks"></div>
                     </div>
                 </div>
+                <button class="btn btn-primary" id="nextBtn" type="button" disabled style="margin-top: 20px;">Далее →</button>
             </section>
 
-            <section class="card" id="settingsSection" hidden>
-                <h2>3. Параметры скачивания</h2>
+            <!-- Блок 3: Настройки скачивания -->
+            <section class="card step" id="download-settings" hidden>
+                <h2>Параметры скачивания</h2>
                 <div class="form-grid">
                     <div class="form-field">
-                        <label for="threadSelect">Количество потоков</label>
-                        <select id="threadSelect"></select>
+                        <label for="threadRange">Количество потоков: <span id="threadValue">4</span></label>
+                        <input type="range" id="threadRange" min="1" max="16" value="4" step="1">
+                        <div class="range-labels">
+                            <span>1</span>
+                            <span>16</span>
+                        </div>
                     </div>
                     <div class="form-field">
                         <label for="filename">Имя итогового файла</label>
@@ -452,15 +725,28 @@
                         <button class="btn btn-secondary" id="selectFolderBtn" type="button" style="margin-top: 10px;">Изменить папку</button>
                     </div>
                 </div>
+                <div class="error-message" id="downloadError"></div>
                 <button class="btn btn-primary" id="downloadBtn" type="button" disabled>Скачать</button>
 
                 <div class="progress-container" id="progressContainer">
+                    <div class="progress-stages" id="progressStages">
+                        <div class="stage" data-stage="video">📹 Обработка видео</div>
+                        <div class="stage" data-stage="audio">🎵 Обработка аудио</div>
+                        <div class="stage" data-stage="merge">✨ Финализация</div>
+                    </div>
                     <div class="progress-bar">
                         <div class="progress-fill" id="progressFill"></div>
                     </div>
                     <div class="progress-text">
-                        <span>Выполняется загрузка…</span>
+                        <span id="progressStatus">Подготовка…</span>
                         <span id="progressPercent">0%</span>
+                    </div>
+                    <div class="log-container" id="logContainer">
+                        <div class="log-header">
+                            <span>Процесс скачивания</span>
+                            <button class="log-toggle" id="logToggle" type="button">↓</button>
+                        </div>
+                        <div class="log-content" id="logContent"></div>
                     </div>
                 </div>
 
@@ -470,7 +756,6 @@
                         <button class="btn btn-secondary" id="showFileBtn" type="button">Показать в системе</button>
                     </div>
                 </div>
-                <div class="error-message" id="downloadError"></div>
             </section>
         </main>
     </div>

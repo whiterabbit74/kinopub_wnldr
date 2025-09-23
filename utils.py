@@ -1,5 +1,6 @@
 import os
 import re
+from typing import Optional
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -57,7 +58,7 @@ def _parse_attribute_list(attribute_line: str) -> dict:
     return attributes
 
 
-def _make_absolute(uri: str, base_url: str | None) -> str:
+def _make_absolute(uri: str, base_url: Optional[str]) -> str:
     if not uri:
         return ''
     if is_url(uri) or not base_url:
@@ -65,7 +66,7 @@ def _make_absolute(uri: str, base_url: str | None) -> str:
     return urljoin(base_url, uri)
 
 
-def parse_m3u8_content(content: str, base_url: str | None = None) -> dict:
+def parse_m3u8_content(content: str, base_url: Optional[str] = None) -> dict:
     """Extract information about video, audio and subtitle tracks."""
     video_tracks = []
     audio_tracks = []

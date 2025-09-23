@@ -9,6 +9,7 @@
         "dev": "concurrently -n css,app -c yellow,cyan \"npm:build:css\" \"npm:start\"",
         "build": "electron-builder",
         "build:mac": "electron-builder --mac",
+        "build:arm64": "electron-builder --mac --arm64",
         "dist": "npm run build"
     },
     "keywords": [
@@ -35,6 +36,9 @@
         "directories": {
             "output": "dist"
         },
+        "asarUnpack": [
+            "*.py"
+        ],
         "files": [
             "**/*",
             "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",

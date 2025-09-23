@@ -30,7 +30,20 @@ function resolvePython() {
 function runPython(args) {
   return new Promise((resolve, reject) => {
     const pythonExecutable = resolvePython();
-    const scriptPath = path.join(__dirname, 'python_script.py');
+
+    // Handle both development and packaged app paths
+    let scriptPath;
+    if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
+      scriptPath = path.join(__dirname, 'python_script.py');
+    } else {
+      // In packaged app, Python files are unpacked to app.asar.unpacked
+      scriptPath = path.join(__dirname, '..', 'app.asar.unpacked', 'python_script.py');
+      if (!fs.existsSync(scriptPath)) {
+        // Fallback to Resources directory
+        scriptPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'python_script.py');
+      }
+    }
+
     const processArgs = [scriptPath, ...args];
 
     let aggregatedStdout = '';
@@ -70,7 +83,27 @@ function runPython(args) {
     child.stderr?.on('data', (data) => {
       const chunk = data.toString();
       aggregatedStderr += chunk;
-      console.error('Python stderr:', chunk);
+
+      // Check for progress updates
+      const lines = chunk.split('\n');
+      for (const line of lines) {
+        if (line.startsWith('PROGRESS:')) {
+          try {
+            const progressJson = line.substring(9); // Remove 'PROGRESS:' prefix
+            const progressData = JSON.parse(progressJson);
+            console.log('Python progress:', progressData);
+
+            // Send progress to renderer if available
+            if (global.downloadProgressSender && !global.downloadProgressSender.isDestroyed()) {
+              global.downloadProgressSender.send('download-progress', progressData);
+            }
+          } catch (e) {
+            // Ignore invalid progress JSON
+          }
+        } else if (line.trim()) {
+          console.error('Python stderr:', line);
+        }
+      }
     });
 
     child.once('error', (error) => {
@@ -83,10 +116,28 @@ function runPython(args) {
 
 function safeParseJson(payload, context) {
   try {
-    return JSON.parse(payload);
+    // Try to find JSON in the output - look for lines starting with { or [
+    const lines = payload.trim().split('\n');
+    let jsonLine = '';
+
+    for (const line of lines) {
+      const trimmedLine = line.trim();
+      if (trimmedLine.startsWith('{') || trimmedLine.startsWith('[')) {
+        jsonLine = trimmedLine;
+        break;
+      }
+    }
+
+    if (!jsonLine) {
+      // If no JSON found, try the whole payload
+      jsonLine = payload.trim();
+    }
+
+    return JSON.parse(jsonLine);
   } catch (error) {
+    console.error('Failed to parse JSON:', payload);
     const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Не удалось обработать ответ ${context}: ${message}`);
+    throw new Error(`Не удалось обработать ответ ${context}: ${message}. Полученные данные: ${payload.substring(0, 200)}...`);
   }
 }
 
@@ -95,15 +146,22 @@ async function getTracks(filePath) {
     throw new Error('Некорректный путь к файлу M3U8');
   }
 
-  const output = await runPython(['get-tracks', filePath]);
-  const parsed = safeParseJson(output, 'при анализе дорожек');
-  if (!parsed.success) {
-    throw new Error(parsed.error || 'Не удалось разобрать файл M3U8');
+  try {
+    const output = await runPython(['get-tracks', filePath]);
+    const parsed = safeParseJson(output, 'при анализе дорожек');
+    if (!parsed.success) {
+      throw new Error(parsed.error || 'Не удалось разобрать файл M3U8');
+    }
+    if (!parsed.tracks || typeof parsed.tracks !== 'object') {
+      throw new Error('Ответ не содержит данных о дорожках');
+    }
+    return parsed.tracks;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`Неожиданная ошибка при анализе дорожек: ${String(error)}`);
   }
-  if (!parsed.tracks || typeof parsed.tracks !== 'object') {
-    throw new Error('Ответ не содержит данных о дорожках');
-  }
-  return parsed.tracks;
 }
 
 async function startDownload(options) {
@@ -112,8 +170,14 @@ async function startDownload(options) {
   }
 
   const { filePath, videoIndex, audioIndex, outputDir, filename, threads } = options;
-  if (!filePath || !outputDir || !filename) {
-    throw new Error('Отсутствуют обязательные параметры скачивания');
+  if (!filePath || typeof filePath !== 'string') {
+    throw new Error('Некорректный путь к файлу M3U8');
+  }
+  if (!outputDir || typeof outputDir !== 'string') {
+    throw new Error('Некорректная папка назначения');
+  }
+  if (!filename || typeof filename !== 'string') {
+    throw new Error('Некорректное имя файла');
   }
 
   const args = [
@@ -121,7 +185,7 @@ async function startDownload(options) {
     filePath,
     '--output-dir', outputDir,
     '--filename', filename,
-    '--threads', String(threads || 1)
+    '--threads', String(Math.max(1, Math.min(16, threads || 1)))
   ];
 
   if (typeof videoIndex === 'number' && videoIndex >= 0) {
@@ -132,12 +196,19 @@ async function startDownload(options) {
     args.push('--audio', String(audioIndex));
   }
 
-  const output = await runPython(args);
-  const parsed = safeParseJson(output, 'при скачивании файла');
-  if (!parsed.success) {
-    throw new Error(parsed.error || 'Ошибка загрузки файла');
+  try {
+    const output = await runPython(args);
+    const parsed = safeParseJson(output, 'при скачивании файла');
+    if (!parsed.success) {
+      throw new Error(parsed.error || 'Ошибка загрузки файла');
+    }
+    return parsed;
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(`Неожиданная ошибка при скачивании: ${String(error)}`);
   }
-  return parsed;
 }
 
 function createWindow() {
@@ -165,12 +236,25 @@ function createWindow() {
     }
   });
 
-  ipcMain.handle('start-download', async (_event, options) => {
+  ipcMain.handle('start-download', async (event, options) => {
     try {
+      // Store the event sender for progress updates
+      global.downloadProgressSender = event.sender;
       return await startDownload(options);
     } catch (error) {
       console.error('Ошибка запуска скачивания:', error);
       throw error instanceof Error ? error : new Error(String(error));
+    } finally {
+      global.downloadProgressSender = null;
+    }
+  });
+
+  ipcMain.handle('check-ffmpeg', async () => {
+    try {
+      const output = await runPython(['--help']);
+      return { available: true };
+    } catch (error) {
+      return { available: false, error: error.message };
     }
   });
 
@@ -203,6 +287,6 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
+    app.whenReady().then(createWindow);
   }
 });

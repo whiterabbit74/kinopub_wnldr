@@ -1,5 +1,6 @@
 const state = {
     theme: localStorage.getItem('theme') || 'light',
+    currentStep: 'file-selection', // file-selection, track-selection, download-settings
     filePath: null,
     fileName: null,
     videoTracks: [],
@@ -10,31 +11,52 @@ const state = {
     downloadResultPath: null,
 };
 
-// DOM элементы
-const themeToggle = document.getElementById('themeToggle');
-const themeIcon = document.getElementById('themeIcon');
-const themeText = document.getElementById('themeText');
-const dropZone = document.getElementById('dropZone');
-const fileInput = document.getElementById('fileInput');
-const errorMessage = document.getElementById('errorMessage');
-const fileMeta = document.getElementById('fileMeta');
-const fileNameLabel = document.getElementById('fileName');
-const analyzeBtn = document.getElementById('analyzeBtn');
-const tracksSection = document.getElementById('tracksSection');
-const videoTracksList = document.getElementById('videoTracks');
-const audioTracksList = document.getElementById('audioTracks');
-const settingsSection = document.getElementById('settingsSection');
-const threadSelect = document.getElementById('threadSelect');
-const filenameInput = document.getElementById('filename');
-const downloadPath = document.getElementById('downloadPath');
-const selectFolderBtn = document.getElementById('selectFolderBtn');
-const downloadBtn = document.getElementById('downloadBtn');
-const progressContainer = document.getElementById('progressContainer');
-const progressFill = document.getElementById('progressFill');
-const progressPercent = document.getElementById('progressPercent');
-const successSection = document.getElementById('successSection');
-const showFileBtn = document.getElementById('showFileBtn');
-const downloadError = document.getElementById('downloadError');
+// DOM элементы - получаем безопасно после загрузки DOM
+let themeToggle, themeIcon, themeText, backBtn, nextBtn, dropZone, fileInput, errorMessage;
+let fileMeta, fileNameLabel, analyzeBtn, tracksSection, videoTracksList, audioTracksList;
+let settingsSection, threadRange, threadValue, filenameInput, downloadPath, selectFolderBtn;
+let downloadBtn, progressContainer, progressFill, progressPercent, progressStatus, progressStages;
+let logContainer, logToggle, logContent, successSection, showFileBtn, downloadError;
+
+// Флаги для предотвращения race conditions
+let isRenderingTracks = false;
+let isDownloading = false;
+let currentProgressListener = null;
+
+function initDomElements() {
+    themeToggle = document.getElementById('themeToggle');
+    themeIcon = document.getElementById('themeIcon');
+    themeText = document.getElementById('themeText');
+    backBtn = document.getElementById('backBtn');
+    nextBtn = document.getElementById('nextBtn');
+    dropZone = document.getElementById('dropZone');
+    fileInput = document.getElementById('fileInput');
+    errorMessage = document.getElementById('errorMessage');
+    fileMeta = document.getElementById('fileMeta');
+    fileNameLabel = document.getElementById('fileName');
+    analyzeBtn = document.getElementById('analyzeBtn');
+    tracksSection = document.getElementById('tracksSection');
+    videoTracksList = document.getElementById('videoTracks');
+    audioTracksList = document.getElementById('audioTracks');
+    settingsSection = document.getElementById('settingsSection');
+    threadRange = document.getElementById('threadRange');
+    threadValue = document.getElementById('threadValue');
+    filenameInput = document.getElementById('filename');
+    downloadPath = document.getElementById('downloadPath');
+    selectFolderBtn = document.getElementById('selectFolderBtn');
+    downloadBtn = document.getElementById('downloadBtn');
+    progressContainer = document.getElementById('progressContainer');
+    progressFill = document.getElementById('progressFill');
+    progressPercent = document.getElementById('progressPercent');
+    progressStatus = document.getElementById('progressStatus');
+    progressStages = document.getElementById('progressStages');
+    logContainer = document.getElementById('logContainer');
+    logToggle = document.getElementById('logToggle');
+    logContent = document.getElementById('logContent');
+    successSection = document.getElementById('successSection');
+    showFileBtn = document.getElementById('showFileBtn');
+    downloadError = document.getElementById('downloadError');
+}
 
 function applyTheme() {
     document.documentElement.setAttribute('data-theme', state.theme);
@@ -44,6 +66,46 @@ function applyTheme() {
     } else {
         themeIcon.textContent = '🌙';
         themeText.textContent = 'Тёмная тема';
+    }
+}
+
+function showStep(stepName) {
+    // Hide all steps
+    document.querySelectorAll('.step').forEach(step => {
+        step.hidden = true;
+    });
+
+    // Show current step
+    const currentStepElement = document.getElementById(stepName);
+    if (currentStepElement) {
+        currentStepElement.hidden = false;
+    }
+
+    // Update back button visibility
+    const backBtn = document.getElementById('backBtn');
+    if (backBtn) {
+        backBtn.style.display = stepName === 'file-selection' ? 'none' : 'block';
+    }
+
+    state.currentStep = stepName;
+}
+
+function goToNextStep() {
+    if (state.currentStep === 'file-selection') {
+        showStep('track-selection');
+    } else if (state.currentStep === 'track-selection') {
+        showStep('download-settings');
+        // Инициализируем загрузки при переходе к настройкам
+        initializeDownloadPath();
+        updateDownloadButton();
+    }
+}
+
+function goToPreviousStep() {
+    if (state.currentStep === 'track-selection') {
+        showStep('file-selection');
+    } else if (state.currentStep === 'download-settings') {
+        showStep('track-selection');
     }
 }
 
@@ -69,9 +131,6 @@ function resetTracks() {
     state.selectedAudio = null;
     videoTracksList.innerHTML = '';
     audioTracksList.innerHTML = '';
-    tracksSection.hidden = true;
-    settingsSection.hidden = true;
-    updateDownloadButton();
 }
 
 function formatBandwidth(bandwidth) {
@@ -98,6 +157,14 @@ function createTrackElement(track, type) {
     element.dataset.type = type;
     element.dataset.id = track.id;
 
+    // Radio button indicator
+    const radio = document.createElement('div');
+    radio.className = 'track-radio';
+
+    // Track info container
+    const info = document.createElement('div');
+    info.className = 'track-info';
+
     const title = document.createElement('div');
     title.className = 'track-title';
     if (type === 'video') {
@@ -111,53 +178,90 @@ function createTrackElement(track, type) {
     details.className = 'track-details';
     if (type === 'video') {
         const parts = [];
-        if (track.bandwidth) parts.push(`Битрейт: ${formatBandwidth(track.bandwidth)}`);
-        if (track.codec) parts.push(`Кодек: ${track.codec}`);
-        if (track.frame_rate) parts.push(`FPS: ${track.frame_rate}`);
-        details.textContent = parts.join(' • ') || 'Без доп. данных';
+        if (track.bandwidth) parts.push(`${formatBandwidth(track.bandwidth)}`);
+        if (track.codec) parts.push(`${track.codec}`);
+        if (track.frame_rate) parts.push(`${track.frame_rate} FPS`);
+        details.textContent = parts.join(' • ') || 'Основное качество';
     } else {
         const parts = [];
-        if (track.language) parts.push(`Язык: ${track.language.toUpperCase()}`);
+        if (track.language) parts.push(`${track.language.toUpperCase()}`);
         if (track.is_default) parts.push('По умолчанию');
-        if (track.codec) parts.push(`Кодек: ${track.codec}`);
-        details.textContent = parts.join(' • ') || 'Без доп. данных';
+        if (track.codec) parts.push(`${track.codec}`);
+        details.textContent = parts.join(' • ') || 'Стандартный звук';
     }
 
-    element.appendChild(title);
-    element.appendChild(details);
+    info.appendChild(title);
+    info.appendChild(details);
+    element.appendChild(radio);
+    element.appendChild(info);
     return element;
 }
 
 function renderTracks() {
-    videoTracksList.innerHTML = '';
-    audioTracksList.innerHTML = '';
+    // Предотвращаем race condition
+    if (isRenderingTracks) {
+        return;
+    }
+    isRenderingTracks = true;
 
-    state.videoTracks.forEach((track) => {
-        const element = createTrackElement(track, 'video');
-        if (state.selectedVideo === track.id) {
-            element.classList.add('selected');
+    try {
+        if (!videoTracksList || !audioTracksList) {
+            console.error('DOM elements not ready for renderTracks');
+            return;
         }
-        element.addEventListener('click', () => {
-            state.selectedVideo = track.id;
-            renderTracks();
-            revealSettings();
+
+        videoTracksList.innerHTML = '';
+        audioTracksList.innerHTML = '';
+
+        state.videoTracks.forEach((track) => {
+            const element = createTrackElement(track, 'video');
+            if (state.selectedVideo === track.id) {
+                element.classList.add('selected');
+            }
+            element.addEventListener('click', () => {
+                if (!isRenderingTracks) {
+                    state.selectedVideo = track.id;
+                    // Используем debounced перерисовку
+                    debounceRenderTracks();
+                    updateNextButton();
+                }
+            });
+            videoTracksList.appendChild(element);
         });
-        videoTracksList.appendChild(element);
-    });
 
     const emptyAudio = document.createElement('button');
     emptyAudio.type = 'button';
     emptyAudio.className = 'track-item';
     emptyAudio.dataset.type = 'audio';
     emptyAudio.dataset.id = '-1';
-    emptyAudio.innerHTML = '<div class="track-title">Использовать звук из выбранного видео</div><div class="track-details">Отдельная аудиодорожка не будет скачиваться</div>';
+
+    const radio = document.createElement('div');
+    radio.className = 'track-radio';
+
+    const info = document.createElement('div');
+    info.className = 'track-info';
+
+    const title = document.createElement('div');
+    title.className = 'track-title';
+    title.textContent = 'Использовать звук из видео';
+
+    const details = document.createElement('div');
+    details.className = 'track-details';
+    details.textContent = 'Отдельная аудиодорожка не скачается';
+
+    info.appendChild(title);
+    info.appendChild(details);
+    emptyAudio.appendChild(radio);
+    emptyAudio.appendChild(info);
     if (state.selectedAudio === null) {
         emptyAudio.classList.add('selected');
     }
     emptyAudio.addEventListener('click', () => {
-        state.selectedAudio = null;
-        renderTracks();
-        revealSettings();
+        if (!isRenderingTracks) {
+            state.selectedAudio = null;
+            debounceRenderTracks();
+            updateNextButton();
+        }
     });
     audioTracksList.appendChild(emptyAudio);
 
@@ -167,44 +271,71 @@ function renderTracks() {
             element.classList.add('selected');
         }
         element.addEventListener('click', () => {
-            state.selectedAudio = track.id;
-            renderTracks();
-            revealSettings();
+            if (!isRenderingTracks) {
+                state.selectedAudio = track.id;
+                // Используем debounced перерисовку
+                debounceRenderTracks();
+                updateNextButton();
+            }
         });
         audioTracksList.appendChild(element);
     });
+    } finally {
+        isRenderingTracks = false;
+    }
 }
 
-function revealSettings() {
-    if (!settingsSection.hidden) {
-        updateDownloadButton();
-        return;
+// Debounced версия renderTracks для предотвращения множественных вызовов
+let renderTracksTimeout = null;
+function debounceRenderTracks() {
+    if (renderTracksTimeout) {
+        clearTimeout(renderTracksTimeout);
     }
-    settingsSection.hidden = false;
-    populateThreads();
-    updateDownloadButton();
+    renderTracksTimeout = setTimeout(() => {
+        renderTracks();
+        renderTracksTimeout = null;
+    }, 50);
 }
 
-function populateThreads() {
-    if (threadSelect.childElementCount > 0) {
-        return;
+
+function updateThreadValue() {
+    threadValue.textContent = threadRange.value;
+}
+
+function validateFileName(filename) {
+    if (!filename || typeof filename !== 'string') {
+        return false;
     }
-    for (let i = 1; i <= 10; i += 1) {
-        const option = document.createElement('option');
-        option.value = i;
-        option.textContent = `${i}`;
-        if (i === 4) {
-            option.selected = true;
-        }
-        threadSelect.appendChild(option);
+    const trimmed = filename.trim();
+    if (trimmed.length === 0 || trimmed.length > 200) {
+        return false;
+    }
+    // Check for invalid characters
+    const invalidChars = /[<>:"/\\|?*]/;
+    return !invalidChars.test(trimmed);
+}
+
+function validateDownloadFolder(path) {
+    return Boolean(path && typeof path === 'string' && path.trim().length > 0);
+}
+
+function updateNextButton() {
+    if (nextBtn) {
+        const hasVideo = state.selectedVideo !== null && state.selectedVideo !== undefined;
+        nextBtn.disabled = !hasVideo;
     }
 }
 
 function updateDownloadButton() {
+    if (!downloadBtn || !filenameInput) {
+        console.error('Download button or filename input not found');
+        return;
+    }
+
     const hasFile = Boolean(state.filePath);
     const hasVideo = state.selectedVideo !== null && state.selectedVideo !== undefined;
-    const hasFolder = Boolean(state.downloadFolder);
-    const hasName = filenameInput.value.trim().length > 0;
+    const hasFolder = validateDownloadFolder(state.downloadFolder);
+    const hasName = validateFileName(filenameInput.value);
 
     downloadBtn.disabled = !(hasFile && hasVideo && hasFolder && hasName);
 }
@@ -212,26 +343,146 @@ function updateDownloadButton() {
 function resetProgress() {
     progressFill.style.width = '0%';
     progressPercent.textContent = '0%';
+    progressStatus.textContent = 'Подготовка…';
     progressContainer.style.display = 'none';
     successSection.style.display = 'none';
+    resetStages();
+    clearLog();
+}
+
+function resetStages() {
+    const stages = progressStages.querySelectorAll('.stage');
+    stages.forEach(stage => {
+        stage.classList.remove('active', 'completed');
+    });
+}
+
+function setStageActive(stageType) {
+    resetStages();
+    const stage = progressStages.querySelector(`[data-stage="${stageType}"]`);
+    if (stage) {
+        stage.classList.add('active');
+    }
+}
+
+function setStageCompleted(stageType) {
+    const stage = progressStages.querySelector(`[data-stage="${stageType}"]`);
+    if (stage) {
+        stage.classList.remove('active');
+        stage.classList.add('completed');
+    }
+}
+
+function clearLog() {
+    logContent.innerHTML = '';
+}
+
+function addLogEntry(message, type = 'info') {
+    if (!logContent) {
+        console.error('Log content element not ready');
+        return;
+    }
+
+    const entry = document.createElement('div');
+    entry.className = `log-entry ${type}`;
+
+    // Безопасная очистка сообщения от потенциального HTML
+    const sanitizedMessage = String(message).replace(/[<>&"']/g, (char) => {
+        const entities = {
+            '<': '&lt;',
+            '>': '&gt;',
+            '&': '&amp;',
+            '"': '&quot;',
+            "'": '&#x27;'
+        };
+        return entities[char];
+    });
+
+    entry.textContent = `${new Date().toLocaleTimeString()} - ${sanitizedMessage}`;
+    logContent.appendChild(entry);
+    logContent.scrollTop = logContent.scrollHeight;
+
+    // Ограничиваем количество записей в логе (максимум 100)
+    const entries = logContent.querySelectorAll('.log-entry');
+    if (entries.length > 100) {
+        logContent.removeChild(entries[0]);
+    }
+}
+
+function toggleLog() {
+    const isExpanded = logContent.classList.contains('expanded');
+    if (isExpanded) {
+        logContent.classList.remove('expanded');
+        logToggle.textContent = '↓';
+    } else {
+        logContent.classList.add('expanded');
+        logToggle.textContent = '↑';
+    }
 }
 
 function handleFile(file) {
     if (!file) return;
+
+    // Улучшенная валидация файла
     if (!file.name.toLowerCase().endsWith('.m3u8')) {
         showError(errorMessage, 'Пожалуйста, выберите файл с расширением .m3u8');
         return;
     }
+
+    // Проверяем размер файла (максимум 10MB для M3U8)
+    if (file.size > 10 * 1024 * 1024) {
+        showError(errorMessage, 'Файл слишком большой. M3U8 файлы обычно меньше 10MB.');
+        return;
+    }
+
+    // M3U8 файлы могут иметь различные MIME типы или вообще не иметь их
+    // Поэтому полагаемся в основном на расширение файла
+
     hideError(errorMessage);
     state.filePath = file.path;
     state.fileName = file.name;
-    fileNameLabel.textContent = file.name;
-    fileMeta.hidden = false;
-    analyzeBtn.disabled = false;
-    resetTracks();
-    const baseName = file.name.replace(/\.m3u8$/i, '');
-    filenameInput.value = baseName;
-    updateDownloadButton();
+
+    // Автоматически анализируем файл и переходим к следующему блоку
+    analyzeFileAndProceed();
+}
+
+async function analyzeFileAndProceed() {
+    if (!state.filePath) return;
+
+    try {
+        hideError(errorMessage);
+        resetTracks();
+
+        // Добавляем таймаут для операции
+        const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Таймаут анализа файла (30 сек)')), 30000);
+        });
+
+        const tracksPromise = window.electronAPI.getTracks(state.filePath);
+        const tracks = await Promise.race([tracksPromise, timeoutPromise]);
+        state.videoTracks = Array.isArray(tracks.video) ? tracks.video : [];
+        state.audioTracks = Array.isArray(tracks.audio) ? tracks.audio : [];
+
+        if (state.videoTracks.length === 0) {
+            showError(errorMessage, 'Видео-дорожки не найдены в плейлисте.');
+            return;
+        }
+
+        state.selectedVideo = state.videoTracks[0]?.id ?? null;
+        state.selectedAudio = null;
+
+        // Заполняем имя файла
+        const baseName = state.fileName.replace(/\.m3u8$/i, '');
+        filenameInput.value = baseName;
+
+        renderTracks();
+        updateNextButton();
+        showStep('track-selection');
+    } catch (error) {
+        console.error('Ошибка анализа файла:', error);
+        const message = error instanceof Error ? error.message : 'Неизвестная ошибка';
+        showError(errorMessage, `Не удалось разобрать файл: ${message}`);
+    }
 }
 
 async function analyzeFile() {
@@ -299,47 +550,161 @@ async function selectFolder() {
     }
 }
 
-function animateProgress(value) {
+function updateProgress(value, status) {
     progressFill.style.width = `${value}%`;
     progressPercent.textContent = `${Math.round(value)}%`;
+    if (status) {
+        progressStatus.textContent = status;
+    }
 }
 
+
 async function startDownload() {
-    if (downloadBtn.disabled) {
+    // Защита от двойных кликов
+    if (downloadBtn.disabled || isDownloading) {
         return;
     }
+
+    // Additional validation before starting
+    if (!state.filePath) {
+        showError(downloadError, 'Выберите файл M3U8');
+        return;
+    }
+    if (state.selectedVideo === null || state.selectedVideo === undefined) {
+        showError(downloadError, 'Выберите видео дорожку');
+        return;
+    }
+    if (!validateDownloadFolder(state.downloadFolder)) {
+        showError(downloadError, 'Выберите папку для сохранения');
+        return;
+    }
+    if (!validateFileName(filenameInput.value)) {
+        showError(downloadError, 'Введите корректное имя файла (без символов < > : " / \\ | ? *)');
+        return;
+    }
+
+    // Устанавливаем флаги блокировки
+    isDownloading = true;
     hideError(downloadError);
     resetProgress();
     progressContainer.style.display = 'block';
-    animateProgress(12);
     downloadBtn.disabled = true;
+    downloadBtn.textContent = 'Скачивается...';
+
+    // Лог остается свернутым по умолчанию
 
     try {
+        addLogEntry('Начинается процесс скачивания', 'info');
+
+        // Set initial stage
+        setStageActive('video');
+        updateProgress(5, 'Подготовка к скачиванию...');
+
+        // Очищаем предыдущий listener если есть
+        if (currentProgressListener) {
+            window.electronAPI.removeProgressListener();
+        }
+
+        // Setup progress listener
+        currentProgressListener = (progressData) => {
+            const { progress, status } = progressData;
+
+            // Более плавное обновление прогресса
+            let currentProgress = parseInt(progressFill.style.width) || 0;
+            let targetProgress = Math.min(100, Math.max(0, progress));
+
+            // Плавная анимация к целевому прогрессу
+            if (Math.abs(targetProgress - currentProgress) > 1) {
+                const step = (targetProgress - currentProgress) / 10;
+                const animate = () => {
+                    currentProgress += step;
+                    if ((step > 0 && currentProgress < targetProgress) || (step < 0 && currentProgress > targetProgress)) {
+                        updateProgress(currentProgress, status);
+                        requestAnimationFrame(animate);
+                    } else {
+                        updateProgress(targetProgress, status);
+                    }
+                };
+                animate();
+            } else {
+                updateProgress(targetProgress, status);
+            }
+
+            // Синхронизируем этапы с реальным статусом
+            let currentStage = 'video';
+            let stageText = status || 'Скачивание...';
+
+            if (status && status.includes('аудио')) {
+                currentStage = 'audio';
+            } else if (status && (status.includes('Финализация') || status.includes('Склеивание') || status.includes('мерж'))) {
+                currentStage = 'merge';
+            } else if (progress >= 85) {
+                currentStage = 'merge';
+                stageText = 'Финализация файла...';
+            } else if (progress >= 50) {
+                currentStage = 'audio';
+                stageText = 'Обработка аудио...';
+            }
+
+            setStageActive(currentStage);
+
+            addLogEntry(`${Math.round(targetProgress)}% - ${stageText}`, 'info');
+        };
+
+        window.electronAPI.onDownloadProgress(currentProgressListener);
+
         const payload = {
             filePath: state.filePath,
             videoIndex: state.selectedVideo,
             audioIndex: state.selectedAudio,
             outputDir: state.downloadFolder,
             filename: filenameInput.value.trim(),
-            threads: Number(threadSelect.value) || 1,
+            threads: Number(threadRange.value) || 1,
         };
 
-        const result = await window.electronAPI.startDownload(payload);
+        addLogEntry('Запуск FFmpeg для скачивания сегментов', 'info');
+        setStageActive('video');
+        updateProgress(10, 'Скачивается видео...');
+
+        // Start real download with progress tracking and timeout
+        const downloadTimeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Таймаут скачивания (10 минут)')), 10 * 60 * 1000);
+        });
+
+        const downloadPromise = window.electronAPI.startDownload(payload);
+        const result = await Promise.race([downloadPromise, downloadTimeoutPromise]);
 
         if (!result || !result.success) {
             throw new Error(result?.error || 'Скачивание завершилось с ошибкой');
         }
 
-        animateProgress(100);
+        // Complete all stages
+        setStageCompleted('video');
+        setStageCompleted('audio');
+        setStageCompleted('merge');
+        updateProgress(100, 'Загрузка завершена');
+
         state.downloadResultPath = result.output_path;
+        addLogEntry(`Файл успешно сохранен: ${result.output_path}`, 'success');
         successSection.style.display = 'block';
-        downloadBtn.disabled = false;
     } catch (error) {
         console.error('Ошибка скачивания:', error);
         const message = error instanceof Error ? error.message : 'Неизвестная ошибка';
+        addLogEntry(`Ошибка: ${message}`, 'error');
         showError(downloadError, `Не удалось скачать файл: ${message}`);
-        downloadBtn.disabled = false;
+        resetStages();
         progressContainer.style.display = 'none';
+    } finally {
+        // Всегда восстанавливаем состояние
+        isDownloading = false;
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = 'Скачать';
+
+        // Clean up progress listener
+        if (currentProgressListener) {
+            window.electronAPI.removeProgressListener();
+            currentProgressListener = null;
+        }
     }
 }
 
@@ -388,28 +753,67 @@ function setupDragAndDrop() {
 }
 
 function setupEvents() {
+    if (!themeToggle || !downloadBtn || !nextBtn) {
+        console.error('Critical DOM elements not found in setupEvents');
+        return false;
+    }
+
     themeToggle.addEventListener('click', toggleTheme);
-    analyzeBtn.addEventListener('click', analyzeFile);
+    backBtn.addEventListener('click', goToPreviousStep);
+    nextBtn.addEventListener('click', goToNextStep);
+    if (analyzeBtn) analyzeBtn.addEventListener('click', analyzeFile);
     filenameInput.addEventListener('input', updateDownloadButton);
-    threadSelect.addEventListener('change', updateDownloadButton);
+    threadRange.addEventListener('input', () => {
+        updateThreadValue();
+        updateDownloadButton();
+    });
     downloadBtn.addEventListener('click', startDownload);
     selectFolderBtn.addEventListener('click', selectFolder);
     downloadPath.addEventListener('click', selectFolder);
-    downloadPath.addEventListener('keypress', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
+    downloadPath.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            selectFolder();
+        } else if (event.key === ' ') {
             event.preventDefault();
             selectFolder();
         }
     });
     showFileBtn.addEventListener('click', showDownloadedFile);
+    logToggle.addEventListener('click', toggleLog);
+    return true;
 }
 
 function init() {
+    // Инициализируем DOM элементы
+    initDomElements();
+
+    // Проверяем что все элементы загружены
+    if (!themeToggle || !dropZone || !downloadBtn) {
+        console.error('Critical DOM elements not found, retrying in 100ms');
+        setTimeout(init, 100);
+        return;
+    }
+
     applyTheme();
     setupDragAndDrop();
-    setupEvents();
+
+    // Проверяем что события установились успешно
+    if (!setupEvents()) {
+        console.error('Failed to setup events, retrying in 100ms');
+        setTimeout(init, 100);
+        return;
+    }
+
     initializeDownloadPath();
     resetProgress();
+    showStep('file-selection'); // Показываем первый блок
 }
 
-window.addEventListener('DOMContentLoaded', init);
+// Безопасная инициализация с проверкой готовности DOM
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', init);
+} else {
+    // DOM уже загружен
+    init();
+}
