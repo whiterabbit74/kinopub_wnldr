@@ -10,6 +10,8 @@
         "build": "electron-builder",
         "build:mac": "electron-builder --mac",
         "build:arm64": "electron-builder --mac --arm64",
+        "build:win": "electron-builder --win",
+        "build:linux": "electron-builder --linux",
         "dist": "npm run build"
     },
     "keywords": [
@@ -76,6 +78,57 @@
         "dmg": {
             "title": "Video Downloader",
             "backgroundColor": "#f5f5f7"
+        },
+        "win": {
+            "icon": "image.png",
+            "target": [
+                {
+                    "target": "nsis",
+                    "arch": [
+                        "x64",
+                        "ia32"
+                    ]
+                },
+                {
+                    "target": "portable",
+                    "arch": [
+                        "x64",
+                        "ia32"
+                    ]
+                },
+                {
+                    "target": "zip",
+                    "arch": [
+                        "x64",
+                        "ia32"
+                    ]
+                }
+            ]
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true,
+            "shortcutName": "Video Downloader"
+        },
+        "linux": {
+            "icon": "image.png",
+            "category": "Video",
+            "target": [
+                {
+                    "target": "AppImage",
+                    "arch": [
+                        "x64"
+                    ]
+                },
+                {
+                    "target": "deb",
+                    "arch": [
+                        "x64"
+                    ]
+                }
+            ]
         }
     }
 }
