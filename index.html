@@ -1,448 +1,478 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
     <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Downloader</title>
+    <title>Загрузчик M3U8</title>
     <style>
         :root {
-            /* Light theme colors */
-            --bg-primary: #ffffff;
-            --bg-secondary: #f5f5f7;
+            --bg-primary: #f5f5f7;
+            --bg-elevated: #ffffff;
             --bg-tertiary: #fbfbfd;
             --text-primary: #1d1d1f;
-            --text-secondary: #86868b;
-            --text-tertiary: #6e6e73;
-            --border-color: #d2d2d7;
-            --accent-color: #007aff;
-            --accent-hover: #0056cc;
-            --success-color: #30d158;
-            --warning-color: #ff9500;
-            --error-color: #ff3b30;
-            --shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-            --shadow-light: 0 2px 10px rgba(0, 0, 0, 0.05);
+            --text-secondary: #5c5c62;
+            --text-muted: #8e8e93;
+            --accent: #0a84ff;
+            --accent-soft: #b3d7ff;
+            --border: rgba(60, 60, 67, 0.18);
+            --shadow: 0 25px 50px -12px rgba(30, 41, 59, 0.08);
+            --radius-large: 20px;
+            --radius-medium: 14px;
+            --radius-small: 10px;
         }
 
         [data-theme="dark"] {
-            /* Dark theme colors */
-            --bg-primary: #000000;
-            --bg-secondary: #1c1c1e;
+            --bg-primary: #0c0c0d;
+            --bg-elevated: #1c1c1e;
             --bg-tertiary: #2c2c2e;
-            --text-primary: #ffffff;
-            --text-secondary: #98989d;
-            --text-tertiary: #8e8e93;
-            --border-color: #38383a;
-            --accent-color: #0a84ff;
-            --accent-hover: #409cff;
-            --success-color: #32d74b;
-            --warning-color: #ff9f0a;
-            --error-color: #ff453a;
-            --shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-            --shadow-light: 0 2px 10px rgba(0, 0, 0, 0.2);
+            --text-primary: #f5f5f7;
+            --text-secondary: #d1d1d6;
+            --text-muted: #8e8e93;
+            --accent: #64d2ff;
+            --accent-soft: rgba(100, 210, 255, 0.24);
+            --border: rgba(84, 84, 88, 0.65);
+            --shadow: 0 40px 80px -24px rgba(15, 23, 42, 0.7);
         }
 
         * {
-            margin: 0;
-            padding: 0;
             box-sizing: border-box;
         }
 
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-            background-color: var(--bg-primary);
+            margin: 0;
+            font-family: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: radial-gradient(circle at top, #f2f2ff, var(--bg-primary) 42%);
             color: var(--text-primary);
-            line-height: 1.5;
-            transition: background-color 0.3s ease, color 0.3s ease;
-            overflow-x: hidden;
+            min-height: 100vh;
+            transition: background 0.4s ease, color 0.3s ease;
         }
 
-        .header {
+        [data-theme="dark"] body {
+            background: radial-gradient(circle at top, rgba(60, 60, 67, 0.3), var(--bg-primary) 50%);
+        }
+
+        .app-shell {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 40px 32px 60px;
+        }
+
+        header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 20px 30px;
-            border-bottom: 1px solid var(--border-color);
-            background: var(--bg-secondary);
+            margin-bottom: 32px;
         }
 
-        .header h1 {
-            font-size: 22px;
-            font-weight: 600;
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin: 0;
             color: var(--text-primary);
         }
 
         .theme-toggle {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            border-radius: 20px;
-            padding: 8px 16px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-size: 14px;
-            color: var(--text-primary);
-            display: flex;
+            display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 12px 30px -16px rgba(15, 23, 42, 0.35);
         }
 
         .theme-toggle:hover {
-            background: var(--accent-color);
-            color: white;
-            border-color: var(--accent-color);
+            background: var(--accent);
+            color: #fff;
+            border-color: transparent;
         }
 
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 40px 30px;
-        }
-
-        .section {
-            background: var(--bg-secondary);
-            border-radius: 16px;
-            padding: 30px;
-            margin-bottom: 20px;
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow-light);
-            transition: all 0.3s ease;
-        }
-
-        .section:hover {
+        .card {
+            background: var(--bg-elevated);
+            border-radius: var(--radius-large);
+            padding: 28px 32px;
+            margin-bottom: 28px;
+            border: 1px solid var(--border);
             box-shadow: var(--shadow);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
 
-        .section-title {
-            font-size: 18px;
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 32px 60px -24px rgba(45, 55, 72, 0.2);
+        }
+
+        .card h2 {
+            margin: 0 0 18px;
+            font-size: 20px;
             font-weight: 600;
-            margin-bottom: 16px;
             color: var(--text-primary);
         }
 
         .drop-zone {
-            border: 2px dashed var(--border-color);
-            border-radius: 12px;
-            padding: 60px 30px;
+            border: 1.5px dashed var(--border);
+            border-radius: var(--radius-large);
+            padding: 48px 24px;
             text-align: center;
             cursor: pointer;
-            transition: all 0.3s ease;
             background: var(--bg-tertiary);
-            position: relative;
+            transition: all 0.3s ease;
         }
 
         .drop-zone:hover {
-            border-color: var(--accent-color);
-            background: var(--bg-secondary);
+            border-color: var(--accent);
+            background: var(--accent-soft);
+            color: var(--accent);
         }
 
         .drop-zone.dragover {
-            border-color: var(--accent-color);
-            background: var(--accent-color);
-            color: white;
-            transform: scale(1.02);
+            background: var(--accent);
+            color: #fff;
+            border-color: transparent;
+            transform: scale(1.01);
         }
 
-        .drop-zone-icon {
-            font-size: 48px;
-            margin-bottom: 16px;
-            opacity: 0.5;
+        .drop-icon {
+            font-size: 42px;
+            margin-bottom: 12px;
         }
 
-        .drop-zone-text {
-            font-size: 16px;
-            color: var(--text-secondary);
-            margin-bottom: 8px;
+        .drop-title {
+            font-size: 17px;
+            font-weight: 600;
+            margin-bottom: 6px;
         }
 
-        .drop-zone-subtext {
+        .drop-subtitle {
             font-size: 14px;
-            color: var(--text-tertiary);
+            color: var(--text-muted);
         }
 
         .file-input {
             display: none;
         }
 
-        .tracks-section {
+        .hint {
+            margin-top: 16px;
+            font-size: 14px;
+            color: var(--text-muted);
+        }
+
+        .error-message {
+            margin-top: 16px;
+            padding: 12px 16px;
+            border-radius: var(--radius-small);
+            background: rgba(255, 69, 58, 0.12);
+            color: #ff3b30;
+            font-size: 14px;
             display: none;
         }
 
-        .track-item {
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
+        .file-meta {
+            margin-top: 20px;
             padding: 16px;
-            margin-bottom: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
+            border-radius: var(--radius-medium);
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 16px;
         }
 
-        .track-item:hover {
-            background: var(--bg-primary);
-            border-color: var(--accent-color);
-        }
-
-        .track-item.selected {
-            background: var(--accent-color);
-            color: white;
-            border-color: var(--accent-color);
-        }
-
-        .track-info {
-            flex: 1;
-        }
-
-        .track-title {
-            font-weight: 500;
-            margin-bottom: 4px;
-        }
-
-        .track-details {
-            font-size: 14px;
-            opacity: 0.7;
-        }
-
-        .download-section {
-            display: none;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-label {
-            display: block;
-            font-weight: 500;
-            margin-bottom: 8px;
+        .file-name {
+            font-weight: 600;
             color: var(--text-primary);
-        }
-
-        .form-input {
-            width: 100%;
-            padding: 12px 16px;
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            font-size: 14px;
-            transition: all 0.2s ease;
-        }
-
-        .form-input:focus {
-            outline: none;
-            border-color: var(--accent-color);
-            box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
-        }
-
-        .button-group {
-            display: flex;
-            gap: 12px;
-            margin-top: 20px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .btn {
-            padding: 12px 24px;
             border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 500;
+            border-radius: 999px;
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s ease;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            text-decoration: none;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
 
         .btn-primary {
-            background: var(--accent-color);
-            color: white;
+            background: linear-gradient(135deg, var(--accent), #4c6ef5);
+            color: #fff;
+            box-shadow: 0 20px 40px -20px rgba(24, 144, 255, 0.6);
         }
 
         .btn-primary:hover {
-            background: var(--accent-hover);
             transform: translateY(-1px);
+            box-shadow: 0 24px 60px -24px rgba(24, 144, 255, 0.7);
         }
 
         .btn-secondary {
             background: var(--bg-tertiary);
             color: var(--text-primary);
-            border: 1px solid var(--border-color);
-        }
-
-        .btn-secondary:hover {
-            background: var(--bg-primary);
-            border-color: var(--accent-color);
+            border: 1px solid var(--border);
         }
 
         .btn:disabled {
             opacity: 0.5;
             cursor: not-allowed;
-            transform: none !important;
+            transform: none;
+            box-shadow: none;
+        }
+
+        .tracks-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+
+        .track-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .track-item {
+            padding: 16px;
+            border-radius: var(--radius-medium);
+            border: 1px solid var(--border);
+            background: var(--bg-tertiary);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .track-item:hover {
+            border-color: var(--accent);
+            transform: translateY(-2px);
+        }
+
+        .track-item.selected {
+            background: linear-gradient(135deg, rgba(10, 132, 255, 0.18), rgba(10, 132, 255, 0.05));
+            border-color: var(--accent);
+            box-shadow: 0 20px 40px -24px rgba(10, 132, 255, 0.4);
+        }
+
+        .track-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .track-details {
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .form-field label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+        }
+
+        .form-field input,
+        .form-field select {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: var(--radius-medium);
+            border: 1px solid var(--border);
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 15px;
+            transition: border 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .form-field input:focus,
+        .form-field select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.25);
+        }
+
+        .path-display {
+            padding: 12px 16px;
+            border-radius: var(--radius-medium);
+            background: var(--bg-tertiary);
+            border: 1px dashed var(--border);
+            font-family: "SF Mono", "JetBrains Mono", monospace;
+            font-size: 13px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: border 0.2s ease;
+        }
+
+        .path-display:hover {
+            border-color: var(--accent);
         }
 
         .progress-container {
+            margin-top: 24px;
             display: none;
-            margin-top: 20px;
         }
 
         .progress-bar {
             width: 100%;
-            height: 8px;
+            height: 10px;
             background: var(--bg-tertiary);
-            border-radius: 4px;
+            border-radius: 999px;
             overflow: hidden;
+            border: 1px solid var(--border);
             margin-bottom: 12px;
         }
 
         .progress-fill {
             height: 100%;
-            background: var(--success-color);
-            width: 0%;
-            transition: width 0.3s ease;
-            border-radius: 4px;
+            width: 0;
+            background: linear-gradient(135deg, #30d158, #34c759);
+            border-radius: 999px;
+            transition: width 0.4s ease;
         }
 
         .progress-text {
-            display: flex;
-            justify-content: space-between;
             font-size: 14px;
             color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
         }
 
-        .success-section {
-            display: none;
-            background: var(--success-color);
-            color: white;
-            border-radius: 12px;
-            padding: 20px;
-            text-align: center;
+        .success-message {
             margin-top: 20px;
+            padding: 18px 20px;
+            border-radius: var(--radius-medium);
+            background: rgba(52, 199, 89, 0.18);
+            color: #2b8a3e;
+            font-weight: 600;
+            display: none;
         }
 
-        .success-icon {
-            font-size: 32px;
+        .success-actions {
+            margin-top: 12px;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: var(--text-muted);
             margin-bottom: 12px;
         }
 
-        .error-message {
-            background: var(--error-color);
-            color: white;
-            padding: 12px 16px;
-            border-radius: 8px;
-            margin-top: 12px;
-            display: none;
-        }
-
-        .file-path {
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
-            background: var(--bg-tertiary);
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 13px;
-            color: var(--text-secondary);
-            border: 1px solid var(--border-color);
-            cursor: pointer;
-            transition: all 0.2s ease;
-        }
-
-        .file-path:hover {
-            background: var(--bg-primary);
-            border-color: var(--accent-color);
-        }
-
-        @media (max-width: 600px) {
-            .container {
-                padding: 20px 15px;
+        @media (max-width: 768px) {
+            .app-shell {
+                padding: 28px 20px 48px;
             }
 
-            .header {
-                padding: 15px 20px;
-            }
-
-            .section {
-                padding: 20px;
-            }
-
-            .button-group {
+            header {
                 flex-direction: column;
+                align-items: flex-start;
+                gap: 16px;
+            }
+
+            .file-meta {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .card {
+                padding: 24px;
             }
         }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>Video Downloader</h1>
-        <button class="theme-toggle" id="themeToggle">
-            <span id="themeIcon">🌙</span>
-            <span id="themeText">Dark</span>
-        </button>
-    </div>
+    <div class="app-shell">
+        <header>
+            <h1>Загрузчик плейлистов M3U8</h1>
+            <button class="theme-toggle" id="themeToggle" type="button" aria-label="Переключить тему">
+                <span id="themeIcon">🌙</span>
+                <span id="themeText">Тёмная тема</span>
+            </button>
+        </header>
 
-    <div class="container">
-        <!-- File Upload Section -->
-        <div class="section" id="uploadSection">
-            <h2 class="section-title">Select M3U8 File</h2>
-            <div class="drop-zone" id="dropZone">
-                <div class="drop-zone-icon">📁</div>
-                <div class="drop-zone-text">Drag & drop your M3U8 file here</div>
-                <div class="drop-zone-subtext">or click to browse</div>
-                <input type="file" id="fileInput" class="file-input" accept=".m3u8">
-            </div>
-            <div class="error-message" id="errorMessage"></div>
-        </div>
-
-        <!-- Track Selection Section -->
-        <div class="section tracks-section" id="tracksSection">
-            <h2 class="section-title">Select Track</h2>
-            <div id="tracksList"></div>
-        </div>
-
-        <!-- Download Configuration Section -->
-        <div class="section download-section" id="downloadSection">
-            <h2 class="section-title">Download Configuration</h2>
-
-            <div class="form-group">
-                <label class="form-label" for="filename">Filename</label>
-                <input type="text" id="filename" class="form-input" placeholder="Enter filename">
-            </div>
-
-            <div class="form-group">
-                <label class="form-label" for="downloadPath">Download Location</label>
-                <div class="file-path" id="downloadPath" title="Click to change location">
-                    Click to select download folder
+        <main>
+            <section class="card" id="fileSection">
+                <h2>1. Выберите файл плейлиста</h2>
+                <div class="drop-zone" id="dropZone">
+                    <div class="drop-icon">📂</div>
+                    <div class="drop-title">Перетащите сюда файл формата M3U8</div>
+                    <div class="drop-subtitle">или нажмите, чтобы выбрать его вручную</div>
+                    <input type="file" id="fileInput" class="file-input" accept=".m3u8">
                 </div>
-            </div>
-
-            <div class="button-group">
-                <button class="btn btn-secondary" id="selectFolderBtn">Choose Folder</button>
-                <button class="btn btn-primary" id="startDownloadBtn" disabled>Start Download</button>
-            </div>
-
-            <!-- Progress Section -->
-            <div class="progress-container" id="progressContainer">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progressFill"></div>
+                <p class="hint">После выбора файла нажмите «Показать дорожки», чтобы увидеть доступные видео и аудио варианты.</p>
+                <div class="error-message" id="errorMessage"></div>
+                <div class="file-meta" id="fileMeta" hidden>
+                    <span class="file-name" id="fileName"></span>
+                    <button class="btn btn-primary" id="analyzeBtn" type="button">Показать дорожки</button>
                 </div>
-                <div class="progress-text">
-                    <span>Downloading...</span>
-                    <span id="progressPercent">0%</span>
+            </section>
+
+            <section class="card" id="tracksSection" hidden>
+                <h2>2. Выберите видео и аудио дорожки</h2>
+                <p class="subtitle">Вы можете смешивать дорожки разного качества. Если оставить аудио невыбранным, будет использована дорожка из видео.</p>
+                <div class="tracks-grid">
+                    <div>
+                        <h3>Видео</h3>
+                        <div class="track-list" id="videoTracks"></div>
+                    </div>
+                    <div>
+                        <h3>Аудио</h3>
+                        <div class="track-list" id="audioTracks"></div>
+                    </div>
                 </div>
-            </div>
+            </section>
 
-            <!-- Success Section -->
-            <div class="success-section" id="successSection">
-                <div class="success-icon">✅</div>
-                <div>Download completed successfully!</div>
-                <button class="btn btn-secondary" id="showFileBtn" style="margin-top: 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3);">
-                    Show in Finder
-                </button>
-            </div>
+            <section class="card" id="settingsSection" hidden>
+                <h2>3. Параметры скачивания</h2>
+                <div class="form-grid">
+                    <div class="form-field">
+                        <label for="threadSelect">Количество потоков</label>
+                        <select id="threadSelect"></select>
+                    </div>
+                    <div class="form-field">
+                        <label for="filename">Имя итогового файла</label>
+                        <input type="text" id="filename" placeholder="Введите имя без расширения">
+                    </div>
+                    <div class="form-field">
+                        <label for="downloadPath">Папка загрузки</label>
+                        <div class="path-display" id="downloadPath" role="button" tabindex="0">Определяется…</div>
+                        <button class="btn btn-secondary" id="selectFolderBtn" type="button" style="margin-top: 10px;">Изменить папку</button>
+                    </div>
+                </div>
+                <button class="btn btn-primary" id="downloadBtn" type="button" disabled>Скачать</button>
 
-            <div class="error-message" id="downloadError"></div>
-        </div>
+                <div class="progress-container" id="progressContainer">
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span>Выполняется загрузка…</span>
+                        <span id="progressPercent">0%</span>
+                    </div>
+                </div>
+
+                <div class="success-message" id="successSection">
+                    ✅ Готово! Файл скачан и сохранён по выбранному пути.
+                    <div class="success-actions">
+                        <button class="btn btn-secondary" id="showFileBtn" type="button">Показать в системе</button>
+                    </div>
+                </div>
+                <div class="error-message" id="downloadError"></div>
+            </section>
+        </main>
     </div>
 
     <script src="renderer.js"></script>

@@ -6,8 +6,7 @@ const ALLOWED_CHANNELS = [
     'start-download',
     'select-folder',
     'show-file',
-    'get-downloads-path',
-    'download-progress'
+    'get-downloads-path'
 ];
 
 // Validate IPC channel
@@ -32,10 +31,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
             throw new Error('Invalid download options');
         }
 
-        const { filePath, trackIndex, outputDir, filename } = options;
+        const { filePath, videoIndex, audioIndex, outputDir, filename, threads } = options;
 
         if (typeof filePath !== 'string' ||
-            typeof trackIndex !== 'number' ||
             typeof outputDir !== 'string' ||
             typeof filename !== 'string') {
             throw new Error('Invalid download parameters');
@@ -43,9 +41,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
         return await ipcRenderer.invoke('start-download', {
             filePath,
-            trackIndex,
+            videoIndex: typeof videoIndex === 'number' ? videoIndex : null,
+            audioIndex: typeof audioIndex === 'number' ? audioIndex : null,
             outputDir,
-            filename
+            filename,
+            threads: typeof threads === 'number' ? threads : 1
         });
     },
 
@@ -65,26 +65,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Get default downloads path
     getDownloadsPath: async () => {
         return await ipcRenderer.invoke('get-downloads-path');
-    },
-
-    // Listen for download progress updates
-    onDownloadProgress: (callback) => {
-        if (typeof callback !== 'function') {
-            throw new Error('Callback must be a function');
-        }
-
-        const wrappedCallback = (event, percent) => {
-            if (typeof percent === 'number' && percent >= 0 && percent <= 100) {
-                callback(percent);
-            }
-        };
-
-        ipcRenderer.on('download-progress', wrappedCallback);
-
-        // Return cleanup function
-        return () => {
-            ipcRenderer.removeListener('download-progress', wrappedCallback);
-        };
     },
 
     // Remove all listeners (for cleanup)
