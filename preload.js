@@ -1,0 +1,127 @@
+const { contextBridge, ipcRenderer } = require('electron');
+
+// Define allowed IPC channels for security
+const ALLOWED_CHANNELS = [
+    'get-tracks',
+    'start-download',
+    'select-folder',
+    'show-file',
+    'get-downloads-path',
+    'download-progress'
+];
+
+// Validate IPC channel
+function isValidChannel(channel) {
+    return ALLOWED_CHANNELS.includes(channel);
+}
+
+// Expose protected methods that allow the renderer process to use
+// the ipcRenderer without exposing the entire object
+contextBridge.exposeInMainWorld('electronAPI', {
+    // Get tracks from M3U8 file
+    getTracks: async (filePath) => {
+        if (typeof filePath !== 'string') {
+            throw new Error('Invalid file path');
+        }
+        return await ipcRenderer.invoke('get-tracks', filePath);
+    },
+
+    // Start download process
+    startDownload: async (options) => {
+        if (!options || typeof options !== 'object') {
+            throw new Error('Invalid download options');
+        }
+
+        const { filePath, trackIndex, outputDir, filename } = options;
+
+        if (typeof filePath !== 'string' ||
+            typeof trackIndex !== 'number' ||
+            typeof outputDir !== 'string' ||
+            typeof filename !== 'string') {
+            throw new Error('Invalid download parameters');
+        }
+
+        return await ipcRenderer.invoke('start-download', {
+            filePath,
+            trackIndex,
+            outputDir,
+            filename
+        });
+    },
+
+    // Select download folder
+    selectFolder: async () => {
+        return await ipcRenderer.invoke('select-folder');
+    },
+
+    // Show file in system file manager
+    showFile: async (filePath) => {
+        if (typeof filePath !== 'string') {
+            throw new Error('Invalid file path');
+        }
+        return await ipcRenderer.invoke('show-file', filePath);
+    },
+
+    // Get default downloads path
+    getDownloadsPath: async () => {
+        return await ipcRenderer.invoke('get-downloads-path');
+    },
+
+    // Listen for download progress updates
+    onDownloadProgress: (callback) => {
+        if (typeof callback !== 'function') {
+            throw new Error('Callback must be a function');
+        }
+
+        const wrappedCallback = (event, percent) => {
+            if (typeof percent === 'number' && percent >= 0 && percent <= 100) {
+                callback(percent);
+            }
+        };
+
+        ipcRenderer.on('download-progress', wrappedCallback);
+
+        // Return cleanup function
+        return () => {
+            ipcRenderer.removeListener('download-progress', wrappedCallback);
+        };
+    },
+
+    // Remove all listeners (for cleanup)
+    removeAllListeners: () => {
+        ALLOWED_CHANNELS.forEach(channel => {
+            ipcRenderer.removeAllListeners(channel);
+        });
+    }
+});
+
+// Security: Remove any global Node.js APIs that might be exposed
+delete window.require;
+delete window.exports;
+delete window.module;
+
+// Prevent navigation and new window creation for security
+window.addEventListener('DOMContentLoaded', () => {
+    // Prevent drag and drop of external content that could lead to navigation
+    document.addEventListener('drop', (e) => {
+        // Only allow file drops on specific elements
+        if (!e.target.closest('.drop-zone')) {
+            e.preventDefault();
+        }
+    });
+
+    // Prevent navigation
+    document.addEventListener('click', (e) => {
+        if (e.target.tagName === 'A' && e.target.href) {
+            e.preventDefault();
+        }
+    });
+});
+
+// Log initialization
+console.log('Preload script loaded successfully');
+
+// Export validation function for testing (development only)
+if (process.env.NODE_ENV === 'development') {
+    window.__electronAPI_isValidChannel = isValidChannel;
+}
