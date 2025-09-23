@@ -4,29 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is an Electron application for downloading videos from M3U8 playlists with an Apple-inspired design aesthetic. The app features a hybrid architecture combining Node.js/Electron for the UI and Python for M3U8 processing and video downloads.
+This is an Electron application for downloading videos from M3U8 playlists with an Apple-inspired design aesthetic. The app использует полностью Node.js-реализацию для обработки M3U8 и скачивания через FFmpeg.
 
 ## Architecture
 
 ### Process Communication Flow
 1. **Renderer Process** (`renderer.js` + `index.html`) - UI layer handling file drag/drop, track selection, and progress display
-2. **Main Process** (`main.js`) - Electron main process that bridges UI with Python backend via IPC
+2. **Main Process** (`main.js`) - Electron main process that общается с Node.js-бэкендом через IPC
 3. **Preload Script** (`preload.js`) - Security layer with IPC validation between renderer and main processes
-4. **Python Backend** (`python_script.py` + `utils.py`) - M3U8 parsing and FFmpeg-based downloading
+4. **Node Backend** (`native-backend.js`) - M3U8 parsing and FFmpeg-based downloading без участия Python
 
 ### Key Communication Pattern
-- Renderer → Preload → Main → Python Script → FFmpeg
-- Python responses are JSON-formatted and parsed by main process
+- Renderer → Preload → Main → Node Backend → FFmpeg
+- Node backend возвращает структуры JavaScript и рассылает прогресс напрямую в main-процесс
 - All IPC channels are validated in preload.js for security
-
-### Python Integration
-The main.js includes a `resolvePython()` function that searches for Python executables in this order:
-1. Local virtual environments (`venv/`, `.venv/`)
-2. System Python (`python3`, `python`)
-
-Python scripts communicate via JSON stdout/stderr and expect these commands:
-- `get-tracks <filepath>` - Parse M3U8 and return track information
-- `download <filepath> --video <index> --audio <index> --output-dir <dir> --filename <name> --threads <count>`
 
 ## Common Commands
 
@@ -53,14 +44,8 @@ npm run build -- --mac --arm64   # Альтернативный способ
 ## Dependencies
 
 ### Required for runtime:
-- **Node.js** - Electron host
-- **Python 3.9+** - M3U8 processing backend
+- **Node.js** - Electron host и backend
 - **FFmpeg** - Video downloading and processing (must be in PATH)
-
-### Key Python modules used:
-- `subprocess` for FFmpeg integration
-- `pathlib` for cross-platform path handling
-- Custom `utils.py` for M3U8 parsing
 
 ## Theme System
 
@@ -71,8 +56,8 @@ The app uses CSS custom properties for Apple-style light/dark theming. Theme sta
 - Context isolation is enabled in Electron
 - No direct Node.js API access from renderer
 - All IPC channels are explicitly validated
-- Python scripts run in isolated processes with controlled arguments
+- Node backend использует child_process.spawn только для FFmpeg и тщательно фильтрует входные параметры
 
 ## Build Configuration
 
-The electron-builder configuration in package.json targets macOS with both x64 and arm64 architectures. The build excludes development files and includes all necessary runtime assets for both Electron and Python components.
+The electron-builder configuration in package.json targets macOS with both x64 and arm64 architectures. The build excludes development files and включает все необходимые ресурсы для Node.js-бэкенда.

@@ -1,13 +1,11 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
-const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
 
 const nativeBackend = require('./native-backend');
 
 const allowedDownloadDirectories = new Set();
 let defaultDownloadsPath = null;
-let pythonRuntimeAvailable = null;
 
 function rememberAllowedDirectory(directoryPath) {
   if (!directoryPath) {
@@ -28,207 +26,6 @@ function ensureDefaultDownloadsPath() {
     rememberAllowedDirectory(defaultDownloadsPath);
   }
   return defaultDownloadsPath;
-}
-
-function resolvePython() {
-  const candidates = [
-    path.join(__dirname, 'venv', 'bin', 'python3'),
-    path.join(__dirname, 'venv', 'bin', 'python'),
-    path.join(__dirname, '.venv', 'bin', 'python3'),
-    path.join(__dirname, '.venv', 'bin', 'python'),
-    path.join(__dirname, 'venv', 'Scripts', 'python.exe'),
-    path.join(__dirname, '.venv', 'Scripts', 'python.exe'),
-    'python3',
-    'python'
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      if (candidate.includes(path.sep)) {
-        if (fs.existsSync(candidate)) {
-          return candidate;
-        }
-        continue;
-      }
-
-      const checkCommand = process.platform === 'win32' ? 'where' : 'which';
-      const check = spawnSync(checkCommand, [candidate], { stdio: 'ignore' });
-      if (check.status === 0) {
-        return candidate;
-      }
-    } catch (error) {
-      console.error('Ошибка при проверке кандидата Python:', error);
-    }
-  }
-
-  throw new Error('Не удалось найти установленный Python. Установите Python 3.9+ или настройте виртуальное окружение.');
-}
-
-async function runNativeBackend(args) {
-  if (!Array.isArray(args) || args.length === 0) {
-    throw new Error('Некорректные аргументы backend');
-  }
-
-  const [command, ...rest] = args;
-
-  if (command === 'get-tracks') {
-    const source = rest[0];
-    if (!source) {
-      throw new Error('Не указан источник для анализа');
-    }
-    const tracks = await nativeBackend.getTracks(source);
-    return JSON.stringify({ success: true, tracks });
-  }
-
-  if (command === 'download') {
-    if (rest.length === 0) {
-      throw new Error('Не указан источник для скачивания');
-    }
-
-    const source = rest[0];
-    const options = { source };
-    for (let index = 1; index < rest.length; index += 2) {
-      const flag = rest[index];
-      const value = rest[index + 1];
-      if (typeof value === 'undefined') {
-        throw new Error(`Отсутствует значение для ${flag}`);
-      }
-      switch (flag) {
-        case '--output-dir':
-          options.outputDir = value;
-          break;
-        case '--filename':
-          options.filename = value;
-          break;
-        case '--threads':
-          options.threads = Number.parseInt(value, 10) || 1;
-          break;
-        case '--video':
-          options.videoIndex = Number.parseInt(value, 10);
-          break;
-        case '--audio':
-          options.audioIndex = Number.parseInt(value, 10);
-          break;
-        default:
-          break;
-      }
-    }
-
-    if (!options.outputDir || !options.filename) {
-      throw new Error('Некорректные параметры загрузки');
-    }
-
-    const result = await nativeBackend.download(options, (progressPayload) => {
-      if (global.downloadProgressSender && !global.downloadProgressSender.isDestroyed()) {
-        global.downloadProgressSender.send('download-progress', progressPayload);
-      }
-    });
-    return JSON.stringify(result);
-  }
-
-  if (command === 'check-ffmpeg') {
-    const ffmpegPath = await nativeBackend.findFfmpeg();
-    if (!ffmpegPath) {
-      return JSON.stringify({ success: false, error: 'FFmpeg не найден в PATH' });
-    }
-    return JSON.stringify({ success: true, path: ffmpegPath });
-  }
-
-  throw new Error(`Неизвестная команда backend: ${command}`);
-}
-
-function runPython(args) {
-  return new Promise((resolve, reject) => {
-    if (pythonRuntimeAvailable === false) {
-      runNativeBackend(args).then(resolve).catch(reject);
-      return;
-    }
-
-    let pythonExecutable;
-    try {
-      pythonExecutable = resolvePython();
-      pythonRuntimeAvailable = true;
-    } catch (error) {
-      pythonRuntimeAvailable = false;
-      runNativeBackend(args).then(resolve).catch(reject);
-      return;
-    }
-
-    // Handle both development and packaged app paths
-    let scriptPath;
-    if (process.env.NODE_ENV === 'development' || !app.isPackaged) {
-      scriptPath = path.join(__dirname, 'python_script.py');
-    } else {
-      // In packaged app, Python files are unpacked to app.asar.unpacked
-      scriptPath = path.join(__dirname, '..', 'app.asar.unpacked', 'python_script.py');
-      if (!fs.existsSync(scriptPath)) {
-        // Fallback to Resources directory
-        scriptPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'python_script.py');
-      }
-    }
-
-    const processArgs = [scriptPath, ...args];
-
-    let aggregatedStdout = '';
-    const stderrTail = [];
-
-    const child = spawn(pythonExecutable, processArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
-
-    child.stdout.on('data', (chunk) => {
-      aggregatedStdout += chunk.toString();
-      if (aggregatedStdout.length > 5 * 1024 * 1024) {
-        child.kill();
-        reject(new Error('Ответ Python превышает допустимый размер.'));
-      }
-    });
-
-    child.stderr.on('data', (chunk) => {
-      const text = chunk.toString();
-      for (const rawLine of text.split(/\r?\n/)) {
-        const line = rawLine.trim();
-        if (!line) {
-          continue;
-        }
-
-        if (line.startsWith('PROGRESS:')) {
-          try {
-            const progressJson = line.substring('PROGRESS:'.length);
-            const progressData = JSON.parse(progressJson);
-            if (global.downloadProgressSender && !global.downloadProgressSender.isDestroyed()) {
-              global.downloadProgressSender.send('download-progress', progressData);
-            }
-          } catch (error) {
-            // Игнорируем ошибки разбора прогресса
-          }
-          continue;
-        }
-
-        stderrTail.push(line);
-        if (stderrTail.length > 50) {
-          stderrTail.shift();
-        }
-      }
-    });
-
-    child.once('error', (error) => {
-      if (error && (error.code === 'ENOENT' || error.code === 'EACCES')) {
-        pythonRuntimeAvailable = false;
-        runNativeBackend(args).then(resolve).catch(reject);
-        return;
-      }
-      reject(new Error(`Не удалось запустить Python: ${error.message}`));
-    });
-
-    child.once('close', (code) => {
-      if (code !== 0) {
-        const details = stderrTail.join('\n');
-        reject(new Error(`Python-скрипт завершился с ошибкой (код ${code}): ${details}`));
-        return;
-      }
-
-      resolve(aggregatedStdout);
-    });
-  });
 }
 
 function normalizeSourcePath(source) {
@@ -254,45 +51,14 @@ function normalizeSourcePath(source) {
   return resolved;
 }
 
-function safeParseJson(payload, context) {
-  try {
-    // Try to find JSON in the output - look for lines starting with { or [
-    const lines = payload.trim().split('\n');
-    let jsonLine = '';
-
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      if (trimmedLine.startsWith('{') || trimmedLine.startsWith('[')) {
-        jsonLine = trimmedLine;
-        break;
-      }
-    }
-
-    if (!jsonLine) {
-      // If no JSON found, try the whole payload
-      jsonLine = payload.trim();
-    }
-
-    return JSON.parse(jsonLine);
-  } catch (error) {
-    console.error('Failed to parse JSON:', payload);
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`Не удалось обработать ответ ${context}: ${message}. Полученные данные: ${payload.substring(0, 200)}...`);
-  }
-}
-
 async function getTracks(filePath) {
   try {
     const normalized = normalizeSourcePath(filePath);
-    const output = await runPython(['get-tracks', normalized]);
-    const parsed = safeParseJson(output, 'при анализе дорожек');
-    if (!parsed.success) {
-      throw new Error(parsed.error || 'Не удалось разобрать файл M3U8');
-    }
-    if (!parsed.tracks || typeof parsed.tracks !== 'object') {
+    const tracks = await nativeBackend.getTracks(normalized);
+    if (!tracks || typeof tracks !== 'object') {
       throw new Error('Ответ не содержит данных о дорожках');
     }
-    return parsed.tracks;
+    return tracks;
   } catch (error) {
     if (error instanceof Error) {
       throw error;
@@ -323,29 +89,25 @@ async function startDownload(options) {
   }
   rememberAllowedDirectory(resolvedOutputDir);
 
-  const args = [
-    'download',
-    normalizedFilePath,
-    '--output-dir', resolvedOutputDir,
-    '--filename', filename,
-    '--threads', String(Math.max(1, Math.min(16, threads || 1)))
-  ];
-
-  if (typeof videoIndex === 'number' && videoIndex >= 0) {
-    args.push('--video', String(videoIndex));
-  }
-
-  if (typeof audioIndex === 'number' && audioIndex >= 0) {
-    args.push('--audio', String(audioIndex));
-  }
+  const normalizedThreads = Math.max(1, Math.min(16, Number.parseInt(threads, 10) || 1));
 
   try {
-    const output = await runPython(args);
-    const parsed = safeParseJson(output, 'при скачивании файла');
-    if (!parsed.success) {
-      throw new Error(parsed.error || 'Ошибка загрузки файла');
-    }
-    return parsed;
+    const result = await nativeBackend.download(
+      {
+        source: normalizedFilePath,
+        outputDir: resolvedOutputDir,
+        filename,
+        threads: normalizedThreads,
+        videoIndex: typeof videoIndex === 'number' && videoIndex >= 0 ? videoIndex : undefined,
+        audioIndex: typeof audioIndex === 'number' && audioIndex >= 0 ? audioIndex : undefined
+      },
+      (progressPayload) => {
+        if (global.downloadProgressSender && !global.downloadProgressSender.isDestroyed()) {
+          global.downloadProgressSender.send('download-progress', progressPayload);
+        }
+      }
+    );
+    return result;
   } catch (error) {
     if (error instanceof Error) {
       throw error;
@@ -394,11 +156,13 @@ function createWindow() {
 
   ipcMain.handle('check-ffmpeg', async () => {
     try {
-      const output = await runPython(['check-ffmpeg']);
-      const parsed = safeParseJson(output, 'при проверке FFmpeg');
-      return parsed;
+      const ffmpegPath = await nativeBackend.findFfmpeg();
+      if (!ffmpegPath) {
+        return { success: false, error: 'FFmpeg не найден в PATH' };
+      }
+      return { success: true, path: ffmpegPath };
     } catch (error) {
-      return { available: false, error: error.message };
+      return { success: false, error: error.message };
     }
   });
 
