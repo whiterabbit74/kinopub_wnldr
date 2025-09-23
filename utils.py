@@ -1,9 +1,11 @@
 import os
 import re
+from pathlib import Path
 from typing import Optional
+
+from urllib.error import HTTPError, URLError
 from urllib.parse import urljoin, urlparse
 from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
 
 
 def is_url(value: str) -> bool:
@@ -27,6 +29,11 @@ def read_m3u8_source(path_or_url: str):
                 raw = response.read()
                 text = raw.decode('utf-8', errors='replace')
                 final_url = response.geturl()
+                parsed = urlparse(final_url)
+                if parsed.scheme not in ('http', 'https'):
+                    raise RuntimeError('Поддерживаются только HTTP(S) источники')
+                if parsed.scheme == 'http':
+                    raise RuntimeError('Небезопасные HTTP источники не поддерживаются. Используйте HTTPS.');
                 base_url = final_url.rsplit('/', 1)[0] + '/' if '/' in final_url else final_url
                 return text, base_url
         except (URLError, HTTPError) as exc:
@@ -41,14 +48,19 @@ def read_m3u8_source(path_or_url: str):
     except OSError as exc:
         raise RuntimeError(f'Не удалось прочитать файл {path_or_url}: {exc}') from exc
 
-    base_url = os.path.dirname(os.path.abspath(path_or_url)) + '/'
+    base_path = os.path.abspath(path_or_url)
+    base_dir = os.path.dirname(base_path)
+    try:
+        base_url = Path(base_dir).as_uri() + '/'
+    except ValueError:
+        base_url = base_dir + os.sep
     return content, base_url
 
 
 def _parse_attribute_list(attribute_line: str) -> dict:
     """Parse an EXTINF style attribute list into a dictionary."""
     attributes = {}
-    scanner = re.finditer(r'(\w+)=(("[^"]*")|([^,]*))', attribute_line)
+    scanner = re.finditer(r'([A-Z0-9-]+)=(("[^"]*")|([^,]*))', attribute_line, re.IGNORECASE)
     for match in scanner:
         key = match.group(1)
         value = match.group(2)
@@ -63,6 +75,10 @@ def _make_absolute(uri: str, base_url: Optional[str]) -> str:
         return ''
     if is_url(uri) or not base_url:
         return uri
+    if base_url.startswith('file://'):
+        parsed = urlparse(base_url)
+        base_path = Path(parsed.path)
+        return str((base_path / uri).resolve())
     return urljoin(base_url, uri)
 
 

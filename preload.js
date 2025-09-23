@@ -6,7 +6,8 @@ const ALLOWED_CHANNELS = [
     'start-download',
     'select-folder',
     'show-file',
-    'get-downloads-path'
+    'get-downloads-path',
+    'check-ffmpeg'
 ];
 
 // Validate IPC channel
@@ -65,6 +66,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Get default downloads path
     getDownloadsPath: async () => {
         return await ipcRenderer.invoke('get-downloads-path');
+    },
+
+    checkFfmpeg: async () => {
+        return await ipcRenderer.invoke('check-ffmpeg');
     },
 
     // Listen for download progress updates

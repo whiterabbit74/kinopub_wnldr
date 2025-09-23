@@ -1,8 +1,34 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
-const { execFile } = require('child_process');
-const os = require('os');
+const { spawn, spawnSync } = require('child_process');
 const fs = require('fs');
+
+const nativeBackend = require('./native-backend');
+
+const allowedDownloadDirectories = new Set();
+let defaultDownloadsPath = null;
+let pythonRuntimeAvailable = null;
+
+function rememberAllowedDirectory(directoryPath) {
+  if (!directoryPath) {
+    return;
+  }
+  allowedDownloadDirectories.add(path.resolve(directoryPath));
+}
+
+function isSubPath(candidate, parent) {
+  const normalizedCandidate = path.resolve(candidate);
+  const normalizedParent = path.resolve(parent);
+  return normalizedCandidate === normalizedParent || normalizedCandidate.startsWith(`${normalizedParent}${path.sep}`);
+}
+
+function ensureDefaultDownloadsPath() {
+  if (!defaultDownloadsPath) {
+    defaultDownloadsPath = app.getPath('downloads');
+    rememberAllowedDirectory(defaultDownloadsPath);
+  }
+  return defaultDownloadsPath;
+}
 
 function resolvePython() {
   const candidates = [
@@ -10,13 +36,24 @@ function resolvePython() {
     path.join(__dirname, 'venv', 'bin', 'python'),
     path.join(__dirname, '.venv', 'bin', 'python3'),
     path.join(__dirname, '.venv', 'bin', 'python'),
+    path.join(__dirname, 'venv', 'Scripts', 'python.exe'),
+    path.join(__dirname, '.venv', 'Scripts', 'python.exe'),
     'python3',
     'python'
   ];
 
   for (const candidate of candidates) {
     try {
-      if (candidate.includes(path.sep) && fs.existsSync(candidate)) {
+      if (candidate.includes(path.sep)) {
+        if (fs.existsSync(candidate)) {
+          return candidate;
+        }
+        continue;
+      }
+
+      const checkCommand = process.platform === 'win32' ? 'where' : 'which';
+      const check = spawnSync(checkCommand, [candidate], { stdio: 'ignore' });
+      if (check.status === 0) {
         return candidate;
       }
     } catch (error) {
@@ -24,12 +61,98 @@ function resolvePython() {
     }
   }
 
-  return 'python3';
+  throw new Error('Не удалось найти установленный Python. Установите Python 3.9+ или настройте виртуальное окружение.');
+}
+
+async function runNativeBackend(args) {
+  if (!Array.isArray(args) || args.length === 0) {
+    throw new Error('Некорректные аргументы backend');
+  }
+
+  const [command, ...rest] = args;
+
+  if (command === 'get-tracks') {
+    const source = rest[0];
+    if (!source) {
+      throw new Error('Не указан источник для анализа');
+    }
+    const tracks = await nativeBackend.getTracks(source);
+    return JSON.stringify({ success: true, tracks });
+  }
+
+  if (command === 'download') {
+    if (rest.length === 0) {
+      throw new Error('Не указан источник для скачивания');
+    }
+
+    const source = rest[0];
+    const options = { source };
+    for (let index = 1; index < rest.length; index += 2) {
+      const flag = rest[index];
+      const value = rest[index + 1];
+      if (typeof value === 'undefined') {
+        throw new Error(`Отсутствует значение для ${flag}`);
+      }
+      switch (flag) {
+        case '--output-dir':
+          options.outputDir = value;
+          break;
+        case '--filename':
+          options.filename = value;
+          break;
+        case '--threads':
+          options.threads = Number.parseInt(value, 10) || 1;
+          break;
+        case '--video':
+          options.videoIndex = Number.parseInt(value, 10);
+          break;
+        case '--audio':
+          options.audioIndex = Number.parseInt(value, 10);
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (!options.outputDir || !options.filename) {
+      throw new Error('Некорректные параметры загрузки');
+    }
+
+    const result = await nativeBackend.download(options, (progressPayload) => {
+      if (global.downloadProgressSender && !global.downloadProgressSender.isDestroyed()) {
+        global.downloadProgressSender.send('download-progress', progressPayload);
+      }
+    });
+    return JSON.stringify(result);
+  }
+
+  if (command === 'check-ffmpeg') {
+    const ffmpegPath = await nativeBackend.findFfmpeg();
+    if (!ffmpegPath) {
+      return JSON.stringify({ success: false, error: 'FFmpeg не найден в PATH' });
+    }
+    return JSON.stringify({ success: true, path: ffmpegPath });
+  }
+
+  throw new Error(`Неизвестная команда backend: ${command}`);
 }
 
 function runPython(args) {
   return new Promise((resolve, reject) => {
-    const pythonExecutable = resolvePython();
+    if (pythonRuntimeAvailable === false) {
+      runNativeBackend(args).then(resolve).catch(reject);
+      return;
+    }
+
+    let pythonExecutable;
+    try {
+      pythonExecutable = resolvePython();
+      pythonRuntimeAvailable = true;
+    } catch (error) {
+      pythonRuntimeAvailable = false;
+      runNativeBackend(args).then(resolve).catch(reject);
+      return;
+    }
 
     // Handle both development and packaged app paths
     let scriptPath;
@@ -47,71 +170,88 @@ function runPython(args) {
     const processArgs = [scriptPath, ...args];
 
     let aggregatedStdout = '';
-    let aggregatedStderr = '';
+    const stderrTail = [];
 
-    const child = execFile(
-      pythonExecutable,
-      processArgs,
-      { maxBuffer: 1024 * 1024 },
-      (error, stdout, stderr) => {
-        aggregatedStdout += stdout || '';
-        aggregatedStderr += stderr || '';
+    const child = spawn(pythonExecutable, processArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
-        if (error) {
-          const details = [error.message, aggregatedStderr.trim()].filter(Boolean).join('\n');
-          const wrappedError = new Error(`Python-скрипт завершился с ошибкой: ${details}`);
-          wrappedError.code = error.code;
-          wrappedError.stderr = aggregatedStderr;
-          wrappedError.stdout = aggregatedStdout;
-          return reject(wrappedError);
-        }
-
-        if (aggregatedStderr) {
-          console.error('Python stderr:', aggregatedStderr);
-        }
-
-        resolve(aggregatedStdout);
+    child.stdout.on('data', (chunk) => {
+      aggregatedStdout += chunk.toString();
+      if (aggregatedStdout.length > 5 * 1024 * 1024) {
+        child.kill();
+        reject(new Error('Ответ Python превышает допустимый размер.'));
       }
-    );
-
-    child.stdout?.on('data', (data) => {
-      const chunk = data.toString();
-      aggregatedStdout += chunk;
-      console.log('Python stdout:', chunk);
     });
 
-    child.stderr?.on('data', (data) => {
-      const chunk = data.toString();
-      aggregatedStderr += chunk;
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      for (const rawLine of text.split(/\r?\n/)) {
+        const line = rawLine.trim();
+        if (!line) {
+          continue;
+        }
 
-      // Check for progress updates
-      const lines = chunk.split('\n');
-      for (const line of lines) {
         if (line.startsWith('PROGRESS:')) {
           try {
-            const progressJson = line.substring(9); // Remove 'PROGRESS:' prefix
+            const progressJson = line.substring('PROGRESS:'.length);
             const progressData = JSON.parse(progressJson);
-            console.log('Python progress:', progressData);
-
-            // Send progress to renderer if available
             if (global.downloadProgressSender && !global.downloadProgressSender.isDestroyed()) {
               global.downloadProgressSender.send('download-progress', progressData);
             }
-          } catch (e) {
-            // Ignore invalid progress JSON
+          } catch (error) {
+            // Игнорируем ошибки разбора прогресса
           }
-        } else if (line.trim()) {
-          console.error('Python stderr:', line);
+          continue;
+        }
+
+        stderrTail.push(line);
+        if (stderrTail.length > 50) {
+          stderrTail.shift();
         }
       }
     });
 
     child.once('error', (error) => {
-      const wrappedError = new Error(`Не удалось запустить Python: ${error.message}`);
-      wrappedError.cause = error;
-      reject(wrappedError);
+      if (error && (error.code === 'ENOENT' || error.code === 'EACCES')) {
+        pythonRuntimeAvailable = false;
+        runNativeBackend(args).then(resolve).catch(reject);
+        return;
+      }
+      reject(new Error(`Не удалось запустить Python: ${error.message}`));
+    });
+
+    child.once('close', (code) => {
+      if (code !== 0) {
+        const details = stderrTail.join('\n');
+        reject(new Error(`Python-скрипт завершился с ошибкой (код ${code}): ${details}`));
+        return;
+      }
+
+      resolve(aggregatedStdout);
     });
   });
+}
+
+function normalizeSourcePath(source) {
+  if (typeof source !== 'string' || source.trim().length === 0) {
+    throw new Error('Некорректный путь к источнику');
+  }
+
+  const trimmed = source.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    if (!/^https:\/\//i.test(trimmed)) {
+      throw new Error('Поддерживаются только HTTPS источники');
+    }
+    return trimmed;
+  }
+
+  const resolved = path.resolve(trimmed);
+  if (!fs.existsSync(resolved)) {
+    throw new Error('Указанный файл не существует');
+  }
+  if (path.extname(resolved).toLowerCase() !== '.m3u8') {
+    throw new Error('Поддерживаются только M3U8 файлы');
+  }
+  return resolved;
 }
 
 function safeParseJson(payload, context) {
@@ -142,12 +282,9 @@ function safeParseJson(payload, context) {
 }
 
 async function getTracks(filePath) {
-  if (typeof filePath !== 'string' || filePath.length === 0) {
-    throw new Error('Некорректный путь к файлу M3U8');
-  }
-
   try {
-    const output = await runPython(['get-tracks', filePath]);
+    const normalized = normalizeSourcePath(filePath);
+    const output = await runPython(['get-tracks', normalized]);
     const parsed = safeParseJson(output, 'при анализе дорожек');
     if (!parsed.success) {
       throw new Error(parsed.error || 'Не удалось разобрать файл M3U8');
@@ -170,9 +307,7 @@ async function startDownload(options) {
   }
 
   const { filePath, videoIndex, audioIndex, outputDir, filename, threads } = options;
-  if (!filePath || typeof filePath !== 'string') {
-    throw new Error('Некорректный путь к файлу M3U8');
-  }
+  const normalizedFilePath = normalizeSourcePath(filePath);
   if (!outputDir || typeof outputDir !== 'string') {
     throw new Error('Некорректная папка назначения');
   }
@@ -180,10 +315,18 @@ async function startDownload(options) {
     throw new Error('Некорректное имя файла');
   }
 
+  const resolvedOutputDir = path.resolve(outputDir);
+  const downloadsPath = ensureDefaultDownloadsPath();
+  const isAllowed = [...allowedDownloadDirectories].some((dir) => isSubPath(resolvedOutputDir, dir));
+  if (!isAllowed && !isSubPath(resolvedOutputDir, downloadsPath)) {
+    throw new Error('Выбранная папка недоступна приложению');
+  }
+  rememberAllowedDirectory(resolvedOutputDir);
+
   const args = [
     'download',
-    filePath,
-    '--output-dir', outputDir,
+    normalizedFilePath,
+    '--output-dir', resolvedOutputDir,
     '--filename', filename,
     '--threads', String(Math.max(1, Math.min(16, threads || 1)))
   ];
@@ -251,8 +394,9 @@ function createWindow() {
 
   ipcMain.handle('check-ffmpeg', async () => {
     try {
-      const output = await runPython(['--help']);
-      return { available: true };
+      const output = await runPython(['check-ffmpeg']);
+      const parsed = safeParseJson(output, 'при проверке FFmpeg');
+      return parsed;
     } catch (error) {
       return { available: false, error: error.message };
     }
@@ -261,23 +405,36 @@ function createWindow() {
   ipcMain.handle('select-folder', async () => {
     const result = await dialog.showOpenDialog(win, {
       properties: ['openDirectory'],
-      defaultPath: path.join(os.homedir(), 'Downloads')
+      defaultPath: ensureDefaultDownloadsPath()
     });
 
     if (!result.canceled && result.filePaths.length > 0) {
-      return result.filePaths[0];
+      const selected = result.filePaths[0];
+      rememberAllowedDirectory(selected);
+      return selected;
     }
     return null;
   });
 
-  ipcMain.handle('get-downloads-path', () => path.join(os.homedir(), 'Downloads'));
+  ipcMain.handle('get-downloads-path', () => ensureDefaultDownloadsPath());
 
   ipcMain.handle('show-file', (_event, filePath) => {
-    shell.showItemInFolder(filePath);
+    if (!filePath || typeof filePath !== 'string') {
+      throw new Error('Некорректный путь к файлу');
+    }
+    const resolved = path.resolve(filePath);
+    const isKnown = [...allowedDownloadDirectories].some((dir) => isSubPath(resolved, dir));
+    if (!isKnown) {
+      throw new Error('Доступ к указанному файлу запрещён');
+    }
+    shell.showItemInFolder(resolved);
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  ensureDefaultDownloadsPath();
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
