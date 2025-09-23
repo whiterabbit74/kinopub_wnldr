@@ -1,207 +1,60 @@
-# Video Downloader - Electron App
+# Загрузчик плейлистов M3U8
 
-A modern, Apple-style Electron application for downloading video streams from M3U8 playlist files. Features a clean interface with dark/light theme support and works exclusively with local M3U8 files.
+Современное Electron-приложение в пастельной палитре с акцентом на эстетику Apple. Позволяет выбрать файл формата **M3U8**, посмотреть доступные видео- и аудиодорожки и скачать итоговый ролик в нужную папку.
 
-## Features
+## Возможности
 
-- **Apple-style Design**: Clean, modern interface with San Francisco fonts and Apple design system
-- **Dark/Light Theme**: Toggle between themes with persistent settings
-- **M3U8 File Support**: Drag & drop or browse for M3U8 playlist files
-- **Track Selection**: Choose from available video tracks with quality information
-- **Progress Tracking**: Real-time download progress with percentage indicator
-- **Folder Selection**: Choose custom download location
-- **File Management**: "Show in Finder" functionality after download
-- **Security**: Sandboxed preload script with IPC validation
+- 🗂️ **Перетаскивание файла** — достаточно бросить плейлист в окно или выбрать его через диалог.
+- 🎚️ **Выбор потоков** — настройка количества потоков FFmpeg от 1 до 10.
+- 🎬 **Просмотр дорожек** — отдельный список видео и аудио с разрешениями, битрейтами, языками и пометками «по умолчанию».
+- 💡 **Темы в стиле Apple** — светлый и тёмный режимы, San Francisco в качестве основного шрифта, мягкие переходы.
+- 💾 **Гибкая загрузка** — имя файла подставляется автоматически из названия M3U8, при необходимости можно изменить папку сохранения (по умолчанию — системные «Загрузки»).
+- ✅ **Готовность к работе** — отображение прогресса, быстрый переход к скачанному файлу.
 
-## Screenshots
-
-### Light Theme
-- Clean, minimalist interface with muted colors
-- Apple-style buttons and form elements
-- Smooth transitions and hover effects
-
-### Dark Theme
-- Dark background with high contrast text
-- Consistent design language across themes
-- Easy on the eyes for extended use
-
-## Installation
-
-### Prerequisites
-
-- Node.js (v14 or higher)
-- Python 3.7+ (for M3U8 processing)
-- FFmpeg (optional, for better video concatenation)
-
-### Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone <repository-url>
-   cd kinopub-electron
-   ```
-
-2. **Install Node.js dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Install Python dependencies**
-   ```bash
-   pip install requests
-   ```
-
-4. **Optional: Install FFmpeg**
-   ```bash
-   # macOS (using Homebrew)
-   brew install ffmpeg
-
-   # Ubuntu/Debian
-   sudo apt update && sudo apt install ffmpeg
-
-   # Windows (using Chocolatey)
-   choco install ffmpeg
-   ```
-
-## Usage
-
-### Starting the Application
+## Быстрый старт
 
 ```bash
+npm install
 npm start
 ```
 
-### Using the Application
+Для корректной работы скачивания необходим установленный **FFmpeg**.
 
-1. **Select M3U8 File**
-   - Drag and drop an M3U8 file onto the drop zone, or
-   - Click the drop zone to browse and select a file
-
-2. **Choose Track**
-   - After file analysis, available tracks will be displayed
-   - Click on a track to select it (shows resolution, bandwidth, codec)
-
-3. **Configure Download**
-   - Enter a filename for the output video
-   - Select download folder (defaults to system Downloads folder)
-
-4. **Start Download**
-   - Click "Start Download" to begin the process
-   - Monitor progress with the real-time progress bar
-
-5. **Access Downloaded File**
-   - Click "Show in Finder" when download completes
-
-### Supported File Formats
-
-- **Input**: M3U8 playlist files only
-- **Output**: MP4 video files
-- **Segments**: TS, M4S, MP4 segments
-
-## Architecture
-
-### Frontend (Renderer Process)
-- **index.html**: Apple-style UI with CSS custom properties for theming
-- **renderer.js**: Application logic, event handling, and progress updates
-- **CSS**: Modern design with smooth transitions and responsive layout
-
-### Backend Integration
-- **preload.js**: Secure IPC bridge with channel validation
-- **main.js**: Electron main process with Python script integration
-- **python_script.py**: M3U8 parsing and download functionality
-- **utils.py**: Utility functions for file processing
-
-### Security Features
-- Sandboxed renderer process
-- IPC channel validation
-- No direct Node.js API exposure
-- Content Security Policy (CSP) ready
-
-## Development
-
-### Scripts
-
-```bash
-# Start development server
-npm start
-
-# Build for production (requires electron-builder setup)
-npm run build
-
-# Run linting
-npm run lint
-
-# Run tests
-npm test
-```
-
-### File Structure
+## Структура проекта
 
 ```
-kinopub-electron/
-├── index.html          # Main UI
-├── renderer.js         # Frontend logic
-├── preload.js          # Security bridge
-├── main.js             # Electron main process
-├── python_script.py    # M3U8 downloader
-├── utils.py            # Python utilities
-├── package.json        # Node.js configuration
-├── .gitignore         # Git ignore rules
-└── README.md          # Documentation
+├── index.html              # Разметка и стили интерфейса
+├── renderer.js             # Логика рендер-процесса
+├── preload.js              # Защищённый мост между UI и main-процессом
+├── main.js                 # Точка входа Electron, IPC-обработчики
+├── python_script.py        # Анализ и загрузка M3U8 с помощью FFmpeg
+├── utils.py                # Вспомогательные функции для работы с плейлистами
+└── docs/
+    └── example_playlist.m3u8  # Анонимизированный пример плейлиста
 ```
 
-### Configuration
+## Пример M3U8
 
-The application uses localStorage for theme persistence and automatically detects the system Downloads folder as the default download location.
+Файл `docs/example_playlist.m3u8` содержит обезличенный мастер-плейлист с несколькими вариантами качества и наборами аудио. Используйте его как образец структуры.
 
-## Troubleshooting
+## Требования
 
-### Common Issues
+- Node.js 16+
+- Python 3.9+
+- FFmpeg, доступный в `PATH`
 
-1. **Python Script Not Found**
-   - Ensure Python 3.7+ is installed and accessible
-   - Check that `python_script.py` has execute permissions
+## Рабочий процесс
 
-2. **FFmpeg Not Available**
-   - The app works without FFmpeg but provides better video quality with it
-   - Install FFmpeg for optimal video concatenation
+1. Запустите приложение `npm start`.
+2. Перетащите локальный файл `*.m3u8` в окно или выберите его вручную.
+3. Нажмите «Показать дорожки», чтобы увидеть список доступных потоков.
+4. Выберите нужные видео- и аудиодорожки, настройте число потоков, измените имя и папку при необходимости.
+5. Нажмите «Скачать» и дождитесь завершения. После успешного скачивания можно открыть файл в системном проводнике одной кнопкой.
 
-3. **Download Failures**
-   - Check internet connection for online M3U8 playlists
-   - Verify M3U8 file format and segment availability
-   - Ensure write permissions in selected download folder
+## Примечания
 
-4. **Theme Not Persisting**
-   - Check browser localStorage functionality
-   - Clear application data and restart
+- Если отдельная аудиодорожка не выбрана, приложение использует звук из выбранного видео-потока.
+- Количество потоков передаётся FFmpeg через ключ `-threads`.
+- Все IPC-вызовы проходят через `preload.js`, что исключает доступ к Node API из рендер-процесса.
 
-### Debug Mode
-
-Set `NODE_ENV=development` for additional debugging features and console output.
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly
-5. Submit a pull request
-
-## License
-
-This project is licensed under the MIT License. See LICENSE file for details.
-
-## Acknowledgments
-
-- Apple Human Interface Guidelines for design inspiration
-- Electron community for framework support
-- FFmpeg project for video processing capabilities
-
-## Version History
-
-- **v1.0.0**: Initial release with core functionality
-  - M3U8 file support
-  - Apple-style design
-  - Dark/light theme toggle
-  - Progress tracking
-  - File management integration
+Приложение полностью готово для локальной работы и демонстрации. Приятного использования!

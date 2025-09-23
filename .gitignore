@@ -179,6 +179,7 @@ tmp/
 # Application specific
 downloads/
 *.m3u8
+!docs/*.m3u8
 *.ts
 *.mp4
 *.mkv
