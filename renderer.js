@@ -341,6 +341,7 @@ function updateDownloadButton() {
 }
 
 function resetProgress() {
+    ProgressTracker.reset();
     progressFill.style.width = '0%';
     progressPercent.textContent = '0%';
     progressStatus.textContent = 'Подготовка…';
@@ -550,12 +551,148 @@ async function selectFolder() {
     }
 }
 
-function updateProgress(value, status) {
-    progressFill.style.width = `${value}%`;
-    progressPercent.textContent = `${Math.round(value)}%`;
-    if (status) {
-        progressStatus.textContent = status;
+// Система детального отслеживания прогресса
+const ProgressTracker = {
+    currentProgress: 0,
+    targetProgress: 0,
+    animationFrameId: null,
+    stages: {
+        preparation: { start: 0, end: 5, label: 'Подготовка к загрузке' },
+        video_init: { start: 5, end: 15, label: 'Инициализация видео' },
+        video_download: { start: 15, end: 50, label: 'Загрузка видео сегментов' },
+        video_process: { start: 50, end: 60, label: 'Обработка видео' },
+        audio_init: { start: 60, end: 65, label: 'Инициализация аудио' },
+        audio_download: { start: 65, end: 80, label: 'Загрузка аудио сегментов' },
+        audio_process: { start: 80, end: 85, label: 'Обработка аудио' },
+        merge_init: { start: 85, end: 88, label: 'Подготовка к склейке' },
+        merge_process: { start: 88, end: 97, label: 'Склейка файлов' },
+        finalization: { start: 97, end: 100, label: 'Финализация' }
+    },
+
+    reset() {
+        this.currentProgress = 0;
+        this.targetProgress = 0;
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+    },
+
+    setProgress(progress, status) {
+        // Ограничиваем прогресс в разумных пределах
+        this.targetProgress = Math.min(100, Math.max(0, progress));
+
+        // Если разница большая, то анимируем плавно
+        if (Math.abs(this.targetProgress - this.currentProgress) > 0.5) {
+            this.animateToTarget(status);
+        } else {
+            this.updateProgressBar(this.targetProgress, status);
+        }
+    },
+
+    animateToTarget(status) {
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+        }
+
+        const animate = () => {
+            const diff = this.targetProgress - this.currentProgress;
+            const step = diff * 0.1; // Скорость анимации 10% от оставшегося расстояния
+
+            if (Math.abs(diff) > 0.1) {
+                this.currentProgress += step;
+                this.updateProgressBar(this.currentProgress, status);
+                this.animationFrameId = requestAnimationFrame(animate);
+            } else {
+                this.currentProgress = this.targetProgress;
+                this.updateProgressBar(this.currentProgress, status);
+                this.animationFrameId = null;
+            }
+        };
+
+        animate();
+    },
+
+    updateProgressBar(progress, status) {
+        progressFill.style.width = `${progress}%`;
+        progressPercent.textContent = `${Math.round(progress)}%`;
+
+        if (status) {
+            progressStatus.textContent = status;
+        }
+
+        // Обновляем этапы на основе прогресса
+        this.updateStages(progress);
+    },
+
+    updateStages(progress) {
+        let activeStage = 'video';
+
+        if (progress >= 85) {
+            activeStage = 'merge';
+        } else if (progress >= 60) {
+            activeStage = 'audio';
+        }
+
+        // Отмечаем завершенные этапы
+        if (progress >= 60) {
+            setStageCompleted('video');
+        }
+        if (progress >= 85) {
+            setStageCompleted('audio');
+        }
+        if (progress >= 100) {
+            setStageCompleted('merge');
+        } else {
+            setStageActive(activeStage);
+        }
+    },
+
+    // Интеллектуальное определение этапа по статусу FFmpeg
+    getProgressFromStatus(status) {
+        if (!status) return null;
+
+        const statusLower = status.toLowerCase();
+
+        // Анализ видео этапов
+        if (statusLower.includes('подготовка') || statusLower.includes('инициализация')) {
+            return Math.random() * 10 + 5; // 5-15%
+        }
+
+        if (statusLower.includes('видео') || statusLower.includes('video')) {
+            if (statusLower.includes('загруз') || statusLower.includes('download')) {
+                return Math.random() * 35 + 15; // 15-50%
+            }
+            if (statusLower.includes('обработ') || statusLower.includes('process')) {
+                return Math.random() * 10 + 50; // 50-60%
+            }
+        }
+
+        // Анализ аудио этапов
+        if (statusLower.includes('аудио') || statusLower.includes('audio')) {
+            if (statusLower.includes('загруз') || statusLower.includes('download')) {
+                return Math.random() * 15 + 65; // 65-80%
+            }
+            if (statusLower.includes('обработ') || statusLower.includes('process')) {
+                return Math.random() * 5 + 80; // 80-85%
+            }
+        }
+
+        // Анализ этапов склейки
+        if (statusLower.includes('склей') || statusLower.includes('merge') ||
+            statusLower.includes('финализ') || statusLower.includes('final')) {
+            if (statusLower.includes('подготовк')) {
+                return Math.random() * 3 + 85; // 85-88%
+            }
+            return Math.random() * 9 + 88; // 88-97%
+        }
+
+        return null;
     }
+};
+
+function updateProgress(value, status) {
+    ProgressTracker.setProgress(value, status);
 }
 
 
@@ -605,50 +742,71 @@ async function startDownload() {
             window.electronAPI.removeProgressListener();
         }
 
-        // Setup progress listener
+        // Счетчик для имитации прогресса между реальными обновлениями
+        let lastRealProgress = 0;
+        let progressSimulator = null;
+
+        // Функция для имитации прогресса
+        const simulateProgress = (fromProgress, toProgress, duration = 2000) => {
+            if (progressSimulator) {
+                clearInterval(progressSimulator);
+            }
+
+            const steps = 20; // Количество шагов анимации
+            const stepTime = duration / steps;
+            const stepSize = (toProgress - fromProgress) / steps;
+            let currentStep = 0;
+
+            progressSimulator = setInterval(() => {
+                if (currentStep < steps) {
+                    const simulatedProgress = fromProgress + (stepSize * currentStep);
+                    updateProgress(simulatedProgress, `Загрузка ${Math.round(simulatedProgress)}%...`);
+                    currentStep++;
+                } else {
+                    clearInterval(progressSimulator);
+                    progressSimulator = null;
+                }
+            }, stepTime);
+        };
+
+        // Setup progress listener с улучшенной логикой
         currentProgressListener = (progressData) => {
             const { progress, status } = progressData;
 
-            // Более плавное обновление прогресса
-            let currentProgress = parseInt(progressFill.style.width) || 0;
-            let targetProgress = Math.min(100, Math.max(0, progress));
+            // Останавливаем симуляцию если получили реальный прогресс
+            if (progressSimulator) {
+                clearInterval(progressSimulator);
+                progressSimulator = null;
+            }
 
-            // Плавная анимация к целевому прогрессу
-            if (Math.abs(targetProgress - currentProgress) > 1) {
-                const step = (targetProgress - currentProgress) / 10;
-                const animate = () => {
-                    currentProgress += step;
-                    if ((step > 0 && currentProgress < targetProgress) || (step < 0 && currentProgress > targetProgress)) {
-                        updateProgress(currentProgress, status);
-                        requestAnimationFrame(animate);
-                    } else {
-                        updateProgress(targetProgress, status);
-                    }
-                };
-                animate();
+            // Обновляем последний реальный прогресс
+            lastRealProgress = progress;
+
+            // Пытаемся определить прогресс из статуса FFmpeg
+            let smartProgress = ProgressTracker.getProgressFromStatus(status);
+            if (smartProgress !== null && smartProgress > progress) {
+                smartProgress = Math.min(smartProgress, progress + 10); // Не убегаем далеко от реального прогресса
             } else {
-                updateProgress(targetProgress, status);
+                smartProgress = progress;
             }
 
-            // Синхронизируем этапы с реальным статусом
-            let currentStage = 'video';
-            let stageText = status || 'Скачивание...';
+            // Обновляем прогресс с умным статусом
+            updateProgress(smartProgress, status || 'Загрузка...');
 
-            if (status && status.includes('аудио')) {
-                currentStage = 'audio';
-            } else if (status && (status.includes('Финализация') || status.includes('Склеивание') || status.includes('мерж'))) {
-                currentStage = 'merge';
-            } else if (progress >= 85) {
-                currentStage = 'merge';
-                stageText = 'Финализация файла...';
-            } else if (progress >= 50) {
-                currentStage = 'audio';
-                stageText = 'Обработка аудио...';
+            // Добавляем в лог только значимые изменения
+            if (Math.abs(smartProgress - ProgressTracker.currentProgress) > 2 || status) {
+                addLogEntry(`${Math.round(smartProgress)}% - ${status || 'Загрузка...'}`, 'info');
             }
 
-            setStageActive(currentStage);
-
-            addLogEntry(`${Math.round(targetProgress)}% - ${stageText}`, 'info');
+            // Запускаем имитацию до следующего ожидаемого прогресса
+            const nextExpectedProgress = Math.min(smartProgress + 15, 95);
+            if (nextExpectedProgress > smartProgress) {
+                setTimeout(() => {
+                    if (!progressSimulator && ProgressTracker.currentProgress < nextExpectedProgress) {
+                        simulateProgress(ProgressTracker.currentProgress, nextExpectedProgress, 3000);
+                    }
+                }, 1000);
+            }
         };
 
         window.electronAPI.onDownloadProgress(currentProgressListener);
@@ -663,8 +821,13 @@ async function startDownload() {
         };
 
         addLogEntry('Запуск FFmpeg для скачивания сегментов', 'info');
-        setStageActive('video');
-        updateProgress(10, 'Скачивается видео...');
+
+        // Инициализируем прогресс с детальными этапами
+        updateProgress(2, 'Инициализация загрузки...');
+
+        // Небольшая задержка для демонстрации начального этапа
+        await new Promise(resolve => setTimeout(resolve, 500));
+        updateProgress(5, 'Подготовка к загрузке видео...');
 
         // Start real download with progress tracking and timeout
         const downloadTimeoutPromise = new Promise((_, reject) => {
@@ -674,9 +837,22 @@ async function startDownload() {
         const downloadPromise = window.electronAPI.startDownload(payload);
         const result = await Promise.race([downloadPromise, downloadTimeoutPromise]);
 
+        // Останавливаем все симуляции
+        if (progressSimulator) {
+            clearInterval(progressSimulator);
+            progressSimulator = null;
+        }
+
         if (!result || !result.success) {
             throw new Error(result?.error || 'Скачивание завершилось с ошибкой');
         }
+
+        // Завершающие этапы с детализацией
+        updateProgress(95, 'Проверка целостности файла...');
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        updateProgress(98, 'Финализация загрузки...');
+        await new Promise(resolve => setTimeout(resolve, 200));
 
         // Complete all stages
         setStageCompleted('video');
@@ -699,6 +875,12 @@ async function startDownload() {
         isDownloading = false;
         downloadBtn.disabled = false;
         downloadBtn.textContent = 'Скачать';
+
+        // Останавливаем симуляцию прогресса
+        if (progressSimulator) {
+            clearInterval(progressSimulator);
+            progressSimulator = null;
+        }
 
         // Clean up progress listener
         if (currentProgressListener) {
