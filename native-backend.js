@@ -144,7 +144,8 @@ function parseM3U8(content, baseUrl) {
 
   for (const line of lines) {
     if (line.startsWith('#EXT-X-STREAM-INF:')) {
-      const attrs = parseAttributeList(line.split(':', 1)[1]);
+      const colonIndex = line.indexOf(':');
+      const attrs = parseAttributeList(line.substring(colonIndex + 1));
       pendingVideo = {
         bandwidth: attrs.BANDWIDTH ? Number.parseInt(attrs.BANDWIDTH, 10) || attrs.BANDWIDTH : undefined,
         resolution: attrs.RESOLUTION,
@@ -161,7 +162,8 @@ function parseM3U8(content, baseUrl) {
       videoTracks.push(pendingVideo);
       pendingVideo = null;
     } else if (line.startsWith('#EXT-X-MEDIA:')) {
-      const attrs = parseAttributeList(line.split(':', 1)[1]);
+      const colonIndex = line.indexOf(':');
+      const attrs = parseAttributeList(line.substring(colonIndex + 1));
       const entry = {
         group_id: attrs['GROUP-ID'],
         name: attrs.NAME,

@@ -51,7 +51,7 @@
             "category": "public.app-category.video",
             "target": [
                 {
-                    "target": "dmg",
+                    "target": "dir",
                     "arch": [
                         "x64",
                         "arm64"
