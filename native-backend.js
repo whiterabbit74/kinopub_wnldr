@@ -223,6 +223,46 @@ function ensureExtension(filename) {
 }
 
 async function findFfmpeg() {
+  // Сначала ищем встроенный FFmpeg
+  const platform = process.platform;
+  const arch = process.arch;
+  let bundledPath = '';
+
+  // Определяем правильный путь к ресурсам (учитываем ASAR)
+  let resourcesPath = __dirname;
+
+  // Если мы в ASAR архиве, нужно использовать app.asar.unpacked
+  if (__dirname.includes('app.asar')) {
+    resourcesPath = __dirname.replace('app.asar', 'app.asar.unpacked');
+  }
+
+  if (platform === 'darwin') {
+    if (arch === 'arm64') {
+      bundledPath = path.join(resourcesPath, 'bin', 'darwin-arm64', 'ffmpeg');
+    } else {
+      bundledPath = path.join(resourcesPath, 'bin', 'darwin-x64', 'ffmpeg');
+    }
+  } else if (platform === 'win32') {
+    if (arch === 'ia32') {
+      bundledPath = path.join(resourcesPath, 'bin', 'win32-ia32', 'ffmpeg.exe');
+    } else {
+      bundledPath = path.join(resourcesPath, 'bin', 'win32-x64', 'ffmpeg.exe');
+    }
+  } else if (platform === 'linux') {
+    bundledPath = path.join(resourcesPath, 'bin', 'linux-x64', 'ffmpeg');
+  }
+
+  // Проверяем встроенный FFmpeg
+  if (bundledPath) {
+    try {
+      await fs.promises.access(bundledPath, fs.constants.F_OK | fs.constants.X_OK);
+      console.log(`Using bundled FFmpeg: ${bundledPath}`);
+      return bundledPath;
+    } catch (error) {
+      console.log(`Bundled FFmpeg not found at ${bundledPath}, searching system...`);
+    }
+  }
+
   // Ищем системный FFmpeg в стандартных местах
   let candidates = [];
 
@@ -265,6 +305,7 @@ async function findFfmpeg() {
     });
 
     if (exists) {
+      console.log(`Using system FFmpeg: ${candidate}`);
       return candidate;
     }
   }
