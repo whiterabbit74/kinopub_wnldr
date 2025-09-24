@@ -696,13 +696,43 @@ const ProgressTracker = {
 
     setProgress(progress, status) {
         const clamped = Math.min(100, Math.max(0, progress));
+
+        // Плавная анимация прогресс-бара
+        if (Math.abs(clamped - this.currentProgress) > 0.1) {
+            this.animateProgress(this.currentProgress, clamped);
+        }
+
         this.currentProgress = clamped;
-        progressFill.style.width = `${clamped}%`;
         progressPercent.textContent = `${Math.round(clamped)}%`;
         if (status) {
             progressStatus.textContent = status;
         }
         this.updateStages(clamped);
+    },
+
+    animateProgress(from, to) {
+        const duration = 800; // 800ms анимация
+        const startTime = performance.now();
+        const difference = to - from;
+
+        const animate = (currentTime) => {
+            const elapsed = currentTime - startTime;
+            const progress = Math.min(elapsed / duration, 1);
+
+            // Использование easing функции для плавности
+            const easeOutCubic = 1 - Math.pow(1 - progress, 3);
+            const currentValue = from + (difference * easeOutCubic);
+
+            progressFill.style.width = `${currentValue}%`;
+
+            if (progress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                progressFill.style.width = `${to}%`;
+            }
+        };
+
+        requestAnimationFrame(animate);
     },
 
     updateStages(progress) {
