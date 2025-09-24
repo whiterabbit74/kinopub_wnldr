@@ -279,14 +279,6 @@ async function download(options, onProgress) {
     }
   }
 
-  if (audioTrack) {
-    const reference = videoTrack.url || (isUrl(source) ? source : null);
-    const referenceHost = reference ? new URL(reference).host : '';
-    const audioHost = audioTrack.url ? new URL(audioTrack.url).host : '';
-    if (referenceHost && audioHost && referenceHost !== audioHost) {
-      throw new Error('Домен аудио дорожки не совпадает с доменом видео');
-    }
-  }
 
   const ffmpegPath = await findFfmpeg();
   if (!ffmpegPath) {
