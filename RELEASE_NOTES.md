@@ -1,9 +1,17 @@
-# Video Downloader v1.0.0 Release Notes
+# Video Downloader v1.1.0 Release Notes
 
 ## Overview
 Complete redesign and rewrite of the Video Downloader application with Apple macOS-inspired liquid glass design and improved functionality.
 
-## What's New in v1.0.0
+## What's New in v1.1.0
+
+### 🚀 Major Improvements
+- **Bundled FFmpeg 6.0** - No need to install FFmpeg separately!
+- **HTTP Support** - Download from both HTTP and HTTPS sources
+- **Better URL Detection** - Fixed issues with file vs URL recognition
+- **Zero Dependencies** - Works out of the box on any system
+
+## What's New Since v1.0.0
 
 ### 🎨 Complete UI/UX Redesign
 - **Apple macOS liquid glass design** with backdrop-filter effects
@@ -34,12 +42,14 @@ Complete redesign and rewrite of the Video Downloader application with Apple mac
 ## Download Options
 
 ### macOS
-- **macOS Apple Silicon (ARM64)**: `Video Downloader-1.0.0-arm64-mac.zip` (84.3 MB)
-- **macOS Intel (x64)**: `Video Downloader-1.0.0-mac.zip` (88.0 MB)
+- **macOS Apple Silicon (ARM64)**: `Video Downloader-1.1.0-arm64-mac.zip` (~158 MB)
+- **macOS Intel (x64)**: `Video Downloader-1.1.0-mac.zip` (~162 MB)
 
 ### Windows
-- **Windows x64**: `Video Downloader-1.0.0-win.zip` (95.9 MB)
-- **Windows x86**: `Video Downloader-1.0.0-ia32-win.zip` (90.0 MB)
+- **Windows x64**: `Video Downloader-1.1.0-win.zip` (~169 MB)
+- **Windows x86**: `Video Downloader-1.1.0-ia32-win.zip` (~165 MB)
+- **Windows Setup**: `Video Downloader Setup 1.1.0.exe` (installer)
+- **Windows Portable**: `Video Downloader 1.1.0.exe` (portable)
 
 ## Installation Instructions
 
