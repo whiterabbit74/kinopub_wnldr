@@ -215,23 +215,8 @@ function sanitizeFilename(filename) {
 }
 
 function ensureExtension(filename) {
-  const parsed = path.parse(filename);
-
-  // Список расширений, которые нужно заменить на .mp4 (так как FFmpeg создает MP4 контейнер)
-  const videoExtensions = ['.flv', '.avi', '.mkv', '.webm', '.mov', '.wmv', '.3gp', '.ts', '.m4v'];
-
-  // Если нет расширения или оно в списке для замены
-  if (!parsed.ext || videoExtensions.includes(parsed.ext.toLowerCase())) {
-    return parsed.name + '.mp4';
-  }
-
-  // Если уже .mp4 - оставляем как есть
-  if (parsed.ext.toLowerCase() === '.mp4') {
-    return filename;
-  }
-
-  // Для других расширений тоже заменяем на .mp4 (FFmpeg создает MP4)
-  return parsed.name + '.mp4';
+  // FFmpeg всегда создает MP4, поэтому просто добавляем .mp4 к любому имени
+  return filename + '.mp4';
 }
 
 async function findFfmpeg() {
