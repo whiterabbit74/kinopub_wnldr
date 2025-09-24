@@ -10,9 +10,9 @@ function isUrl(value) {
     return false;
   }
   try {
-    // eslint-disable-next-line no-new
-    new URL(value);
-    return true;
+    const url = new URL(value);
+    // Проверяем только HTTP/HTTPS URLs
+    return url.protocol === 'http:' || url.protocol === 'https:';
   } catch (error) {
     return false;
   }
