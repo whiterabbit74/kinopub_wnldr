@@ -223,40 +223,29 @@ function ensureExtension(filename) {
 }
 
 async function findFfmpeg() {
-  // Сначала ищем встроенный FFmpeg
-  const platform = process.platform;
-  const arch = process.arch;
-  let bundledPath = '';
+  // Ищем системный FFmpeg в стандартных местах
+  let candidates = [];
 
-  if (platform === 'darwin') {
-    if (arch === 'arm64') {
-      bundledPath = path.join(__dirname, 'bin', 'darwin-arm64', 'ffmpeg');
-    } else {
-      bundledPath = path.join(__dirname, 'bin', 'darwin-x64', 'ffmpeg');
-    }
-  } else if (platform === 'win32') {
-    if (arch === 'ia32') {
-      bundledPath = path.join(__dirname, 'bin', 'win32-ia32', 'ffmpeg.exe');
-    } else {
-      bundledPath = path.join(__dirname, 'bin', 'win32-x64', 'ffmpeg.exe');
-    }
-  } else if (platform === 'linux') {
-    bundledPath = path.join(__dirname, 'bin', 'linux-x64', 'ffmpeg');
+  if (process.platform === 'win32') {
+    candidates = [
+      'ffmpeg.exe',
+      'ffmpeg',
+      'C:\\ffmpeg\\bin\\ffmpeg.exe',
+      'C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe',
+      'C:\\Program Files (x86)\\ffmpeg\\bin\\ffmpeg.exe',
+      path.join(process.env.USERPROFILE || '', 'ffmpeg', 'bin', 'ffmpeg.exe'),
+      path.join(process.env.LOCALAPPDATA || '', 'ffmpeg', 'bin', 'ffmpeg.exe')
+    ];
+  } else {
+    candidates = [
+      'ffmpeg',
+      '/usr/local/bin/ffmpeg',
+      '/opt/homebrew/bin/ffmpeg',
+      '/usr/bin/ffmpeg',
+      '/snap/bin/ffmpeg'
+    ];
   }
 
-  // Проверяем встроенный FFmpeg
-  if (bundledPath) {
-    const bundledExists = await fs.promises.access(bundledPath, fs.constants.F_OK | fs.constants.X_OK)
-      .then(() => true)
-      .catch(() => false);
-
-    if (bundledExists) {
-      return bundledPath;
-    }
-  }
-
-  // Если встроенного нет, ищем системный
-  const candidates = ['ffmpeg', '/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg', '/usr/bin/ffmpeg'];
   for (const candidate of candidates) {
     const exists = await new Promise((resolve) => {
       const probe = spawn(candidate, ['-version']);
@@ -319,7 +308,11 @@ async function download(options, onProgress) {
 
   const ffmpegPath = await findFfmpeg();
   if (!ffmpegPath) {
-    throw new Error('FFmpeg не найден в системе');
+    const isWindows = process.platform === 'win32';
+    const installMsg = isWindows
+      ? 'Скачайте FFmpeg с https://ffmpeg.org и добавьте в PATH или разместите в C:\\ffmpeg\\bin\\'
+      : 'Установите FFmpeg: brew install ffmpeg (macOS) или sudo apt install ffmpeg (Linux)';
+    throw new Error(`FFmpeg не найден в системе. ${installMsg}`);
   }
 
   const resolvedOutputDir = path.resolve(outputDir);

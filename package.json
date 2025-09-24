@@ -1,6 +1,6 @@
 {
     "name": "video-downloader",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "description": "An Electron app to download videos from M3U8 playlists.",
     "main": "main.js",
     "scripts": {
@@ -35,7 +35,6 @@
         },
         "files": [
             "**/*",
-            "bin/**/*",
             "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
             "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
             "!**/node_modules/*.d.ts",
@@ -48,7 +47,8 @@
             "!**/{appveyor.yml,.travis.yml,circle.yml}",
             "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}",
             "!temp/**/*",
-            "!download-ffmpeg.js"
+            "!download-ffmpeg.js",
+            "!bin/**/*"
         ],
         "mac": {
             "category": "public.app-category.video",
