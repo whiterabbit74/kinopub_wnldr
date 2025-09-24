@@ -337,12 +337,12 @@ async function download(options, onProgress) {
       return stages.merge.status;
     }
 
-    // Симуляция прогресса для начальных этапов и fallback
+    // Симуляция реалистичного прогресса
     const progressSimulator = setInterval(() => {
       const elapsed = Date.now() - stageStartTime;
       let targetProgress = currentProgress;
 
-      // Начальные этапы - всегда по времени
+      // Определяем целевой прогресс на основе времени и этапа
       if (currentStage === 'preparation' && elapsed > 500) {
         targetProgress = Math.min(5, currentProgress + 1);
         if (targetProgress >= 5) {
@@ -351,16 +351,40 @@ async function download(options, onProgress) {
         }
       } else if (currentStage === 'analysis' && elapsed > 1000) {
         targetProgress = Math.min(10, currentProgress + 1);
-        if (targetProgress >= 10 && !durationMicroseconds) {
-          // Если FFmpeg еще не дал длительность, ждем
-          targetProgress = 10;
+        if (targetProgress >= 10) {
+          currentStage = 'video';
+          stageStartTime = Date.now();
         }
-      } else if (currentStage === 'video' && !durationMicroseconds && elapsed > 5000) {
-        // Fallback: если долго нет данных от FFmpeg, медленно движемся
-        targetProgress = Math.min(65, currentProgress + 0.3);
+      } else if (currentStage === 'video' && durationMicroseconds) {
+        // Прогресс видео на основе реального времени (8x медленнее чем раньше)
+        const videoProgressRate = 60 / (durationMicroseconds / 1000000); // 60% за длительность видео
+        const expectedProgress = 10 + (elapsed / 1000) * (videoProgressRate / 8);
+        targetProgress = Math.min(70, expectedProgress);
+        if (targetProgress >= 68) {
+          currentStage = 'audio';
+          stageStartTime = Date.now();
+        }
+      } else if (currentStage === 'video' && !durationMicroseconds) {
+        // Без данных о длительности - в 2 раза медленнее
+        targetProgress = Math.min(70, currentProgress + 0.25);
+        if (elapsed > 60000 && targetProgress >= 65) { // После 60 сек переходим к аудио
+          currentStage = 'audio';
+          stageStartTime = Date.now();
+        }
+      } else if (currentStage === 'audio') {
+        // Прогресс аудио (в 2 раза медленнее)
+        const audioProgressRate = durationMicroseconds ?
+          15 / (durationMicroseconds / 1000000) / 2 : // 15% за длительность видео, но в 2 раза медленнее
+          0.4; // Без данных - в 2 раза медленнее
+        const expectedProgress = 70 + (elapsed / 1000) * audioProgressRate;
+        targetProgress = Math.min(85, expectedProgress);
+        if (targetProgress >= 84) {
+          currentStage = 'merge';
+          stageStartTime = Date.now();
+        }
       } else if (currentStage === 'merge') {
-        // Финализация - всегда по времени
-        targetProgress = Math.min(100, 85 + (elapsed / 1000) * 7.5); // 15% за 2 секунды
+        // Финализация (в 2 раза медленнее)
+        targetProgress = Math.min(99, 85 + (elapsed / 1000) * 3.5); // 14% за 4 секунды
       }
 
       if (targetProgress > currentProgress) {
@@ -392,99 +416,6 @@ async function download(options, onProgress) {
             const minutes = parseInt(durationMatch[2], 10);
             const seconds = parseFloat(durationMatch[3]);
             durationMicroseconds = ((hours * 3600 + minutes * 60 + seconds) * 1000000);
-            if (currentStage === 'preparation' || currentStage === 'analysis') {
-              currentStage = 'video';
-              stageStartTime = Date.now();
-            }
-          }
-        }
-
-        // Получаем реальные данные о прогрессе от FFmpeg
-        if (line.startsWith('out_time_ms=')) {
-          const timeMs = Number.parseInt(line.split('=')[1], 10);
-          if (Number.isFinite(timeMs) && durationMicroseconds) {
-            const completedPercent = (timeMs / durationMicroseconds) * 100;
-
-            // Определяем прогресс в зависимости от этапа
-            if (currentStage === 'video') {
-              // Видео: 10-70% = 60% диапазон
-              const videoProgress = Math.min(100, completedPercent);
-              const mappedProgress = 10 + (videoProgress * 0.60);
-              currentProgress = Math.max(currentProgress, mappedProgress);
-
-              if (videoProgress >= 95) {
-                currentStage = 'audio';
-                stageStartTime = Date.now();
-              }
-            } else if (currentStage === 'audio') {
-              // Аудио: 70-85% = 15% диапазон
-              const audioProgress = Math.min(100, completedPercent);
-              const mappedProgress = 70 + (audioProgress * 0.15);
-              currentProgress = Math.max(currentProgress, mappedProgress);
-
-              if (audioProgress >= 95) {
-                currentStage = 'merge';
-                stageStartTime = Date.now();
-              }
-            }
-
-            if (onProgress) {
-              onProgress({
-                progress: Math.round(currentProgress),
-                status: getStatusForProgress(currentProgress)
-              });
-            }
-          }
-        }
-
-        // Альтернативный формат времени
-        if (line.startsWith('out_time=')) {
-          const timeMatch = line.match(/out_time=(\d+):(\d+):(\d+\.\d+)/);
-          if (timeMatch && durationMicroseconds) {
-            const hours = parseInt(timeMatch[1], 10);
-            const minutes = parseInt(timeMatch[2], 10);
-            const seconds = parseFloat(timeMatch[3]);
-            const currentTimeMicroseconds = (hours * 3600 + minutes * 60 + seconds) * 1000000;
-            const completedPercent = (currentTimeMicroseconds / durationMicroseconds) * 100;
-
-            // Аналогично обрабатываем как out_time_ms
-            if (currentStage === 'video') {
-              const videoProgress = Math.min(100, completedPercent);
-              const mappedProgress = 10 + (videoProgress * 0.60);
-              currentProgress = Math.max(currentProgress, mappedProgress);
-
-              if (videoProgress >= 95) {
-                currentStage = 'audio';
-                stageStartTime = Date.now();
-              }
-            } else if (currentStage === 'audio') {
-              const audioProgress = Math.min(100, completedPercent);
-              const mappedProgress = 70 + (audioProgress * 0.15);
-              currentProgress = Math.max(currentProgress, mappedProgress);
-
-              if (audioProgress >= 95) {
-                currentStage = 'merge';
-                stageStartTime = Date.now();
-              }
-            }
-
-            if (onProgress) {
-              onProgress({
-                progress: Math.round(currentProgress),
-                status: getStatusForProgress(currentProgress)
-              });
-            }
-          }
-        }
-
-        // Обновляем при продолжении
-        if (line === 'progress=continue') {
-          // Просто обновляем время, реальный прогресс идет через out_time_ms/out_time
-          if (onProgress) {
-            onProgress({
-              progress: Math.round(currentProgress),
-              status: getStatusForProgress(currentProgress)
-            });
           }
         }
 
