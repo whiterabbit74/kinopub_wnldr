@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const https = require('https');
+const http = require('http');
 const { URL } = require('url');
 
 function isUrl(value) {
@@ -17,18 +18,20 @@ function isUrl(value) {
   }
 }
 
-function ensureHttps(urlString) {
+function validateUrl(urlString) {
   const parsed = new URL(urlString);
-  if (parsed.protocol !== 'https:') {
-    throw new Error('Поддерживаются только HTTPS источники');
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error('Поддерживаются только HTTP/HTTPS источники');
   }
   return parsed;
 }
 
-function fetchHttps(urlString) {
-  const parsed = ensureHttps(urlString);
+function fetchUrl(urlString) {
+  const parsed = validateUrl(urlString);
+  const client = parsed.protocol === 'https:' ? https : http;
+
   return new Promise((resolve, reject) => {
-    const request = https.get(
+    const request = client.get(
       parsed,
       {
         headers: {
@@ -43,7 +46,7 @@ function fetchHttps(urlString) {
             return;
           }
           try {
-            fetchHttps(new URL(location, parsed).toString()).then(resolve).catch(reject);
+            fetchUrl(new URL(location, parsed).toString()).then(resolve).catch(reject);
           } catch (error) {
             reject(error);
           }
@@ -73,7 +76,7 @@ function fetchHttps(urlString) {
 
 async function readSource(source) {
   if (isUrl(source)) {
-    const { content, finalUrl } = await fetchHttps(source);
+    const { content, finalUrl } = await fetchUrl(source);
     const baseUrl = finalUrl.includes('/') ? `${finalUrl.slice(0, finalUrl.lastIndexOf('/') + 1)}` : finalUrl;
     return { content, baseUrl };
   }
@@ -220,6 +223,39 @@ function ensureExtension(filename) {
 }
 
 async function findFfmpeg() {
+  // Сначала ищем встроенный FFmpeg
+  const platform = process.platform;
+  const arch = process.arch;
+  let bundledPath = '';
+
+  if (platform === 'darwin') {
+    if (arch === 'arm64') {
+      bundledPath = path.join(__dirname, 'bin', 'darwin-arm64', 'ffmpeg');
+    } else {
+      bundledPath = path.join(__dirname, 'bin', 'darwin-x64', 'ffmpeg');
+    }
+  } else if (platform === 'win32') {
+    if (arch === 'ia32') {
+      bundledPath = path.join(__dirname, 'bin', 'win32-ia32', 'ffmpeg.exe');
+    } else {
+      bundledPath = path.join(__dirname, 'bin', 'win32-x64', 'ffmpeg.exe');
+    }
+  } else if (platform === 'linux') {
+    bundledPath = path.join(__dirname, 'bin', 'linux-x64', 'ffmpeg');
+  }
+
+  // Проверяем встроенный FFmpeg
+  if (bundledPath) {
+    const bundledExists = await fs.promises.access(bundledPath, fs.constants.F_OK | fs.constants.X_OK)
+      .then(() => true)
+      .catch(() => false);
+
+    if (bundledExists) {
+      return bundledPath;
+    }
+  }
+
+  // Если встроенного нет, ищем системный
   const candidates = ['ffmpeg', '/usr/local/bin/ffmpeg', '/opt/homebrew/bin/ffmpeg', '/usr/bin/ffmpeg'];
   for (const candidate of candidates) {
     const exists = await new Promise((resolve) => {
